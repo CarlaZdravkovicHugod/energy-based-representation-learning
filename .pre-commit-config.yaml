@@ -1,0 +1,20 @@
+# on Windows -- $env:SKIP="tests,example"
+repos:
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff
+        entry: python3 -m ruff check --fix
+        language: system
+        types: [python]
+      # - id: tests
+      #   name: tests
+      #   entry: env PYTHONPATH="." python3 -m pytest
+      #   language: system
+      #   types: [python]
+      #   pass_filenames: false
+      - id: pylint
+        name: pylint
+        entry: python3 -m pylint
+        language: system
+        types: [python]
