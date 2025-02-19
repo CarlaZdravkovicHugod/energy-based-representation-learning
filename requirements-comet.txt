@@ -30,6 +30,7 @@ ml-dtypes
 mpmath
 namex
 networkx
+neptune
 numpy
 opencv-python
 opt_einsum
