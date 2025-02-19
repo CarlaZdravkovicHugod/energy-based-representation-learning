@@ -18,6 +18,7 @@ imageio
 ipython
 jedi
 Jinja2
+kagglehub
 keras
 lazy_loader
 libclang
@@ -32,6 +33,7 @@ namex
 networkx
 neptune
 numpy
+nibabel
 opencv-python
 opt_einsum
 optree
