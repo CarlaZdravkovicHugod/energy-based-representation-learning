@@ -13,8 +13,3 @@ repos:
       #   language: system
       #   types: [python]
       #   pass_filenames: false
-      - id: pylint
-        name: pylint
-        entry: python3 -m pylint
-        language: system
-        types: [python]
