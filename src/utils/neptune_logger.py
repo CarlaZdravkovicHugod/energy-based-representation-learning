@@ -5,12 +5,12 @@ Neptune Logger for logging metrics, models, and metadata to Neptune.
 import neptune
 
 class NeptuneLogger:
-    def __init__(self, project_name, api_token, test=False):
+    def __init__(self, test=False):
         self.test = test
         self.run = neptune.init_run(
-            project=project_name,
+            project=os.environ["NEPTUNE_PROJECT_NAME"],
             mode="offline" if test else "async",
-            api_token=api_token,
+            api_token=os.environ["NEPTUNE_API_TOKEN"],
         )
 
     def log_metadata(self, metadata):
@@ -41,8 +41,6 @@ class NeptuneLogger:
 if __name__ == "__main__":
     import os
     logger = NeptuneLogger(
-        project_name=os.environ["NEPTUNE_PROJECT_NAME"],
-        api_token=os.environ["NEPTUNE_API_TOKEN"],
         test=False
     )
     logger.run["metric"].append(1.0)
