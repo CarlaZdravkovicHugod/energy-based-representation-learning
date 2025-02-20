@@ -25,6 +25,7 @@ libclang
 Markdown
 markdown-it-py
 MarkupSafe
+matplotlib
 matplotlib-inline
 mdurl
 ml-dtypes

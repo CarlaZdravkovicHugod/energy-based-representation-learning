@@ -40,5 +40,5 @@ if __name__ == "__main__":
     dataset = BrainDataset()
     print(dataset.get_data())
     dataset.load_data()
-    print(len(dataset))
+    print('Lenght of data set:', len(dataset))
     dataset.visualize(0)
