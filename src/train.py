@@ -77,22 +77,35 @@ import tempfile
 # NOT REFACTORED
 def average_gradients(models):
     size = float(dist.get_world_size())
-
     for model in models:
         for name, param in model.named_parameters():
             if param.grad is None:
                 continue
-
             dist.all_reduce(param.grad.data, op=dist.reduce_op.SUM)
             param.grad.data /= size
 
 # NOT REFACTORED
 def gen_image(latents, FLAGS, models, im_neg, im, num_steps, sample=False, create_graph=True, idx=None, weights=None):
+    """
+    Generates an image using a learned model by optimizing the image to minimize its energy.
+    
+    Args:
+        latents (list): List of latent vectors.
+        FLAGS (Namespace): Configuration flags.
+        models (list): List of models.
+        im_neg (Tensor): Initial negative image.
+        im (Tensor): Target image.
+        num_steps (int): Number of optimization steps.
+        sample (bool): Whether to sample during generation.
+        create_graph (bool): Whether to create a computational graph.
+        idx (int, optional): Index for selecting specific latent vectors.
+        weights (Tensor, optional): Weights for combining latent vectors.
+    
+    Returns:
+        Tuple: Generated image, intermediate images, gradients, and masks.
+    """
     im_noise = torch.randn_like(im_neg).detach()
-    im_negs_samples = []
-
     im_negs = []
-
     latents = torch.stack(latents, dim=0)
 
     if FLAGS.decoder:
@@ -142,26 +155,65 @@ def gen_image(latents, FLAGS, models, im_neg, im, num_steps, sample=False, creat
 
 
 def ema_model(models, models_ema, mu=0.999): # NOT REFACTORED
+    """Updates the EMA model parameters based on the current model parameters.
+    
+    Args:
+        models (list): List of models.
+        models_ema (list): List of EMA models.
+        mu (float): Decay factor for EMA.
+
+    Returns:
+        None
+    """
+
     for (model, model_ema) in zip(models, models_ema):
         for param, param_ema in zip(model.parameters(), model_ema.parameters()):
             param_ema.data[:] = mu * param_ema.data + (1 - mu) * param.data
 
 
-def sync_model(models): # NOT REFACTORED
-    size = float(dist.get_world_size())
-
+def sync_model(models):
+    """Synchronizes the model parameters across all nodes to ensure consistency during distributed training.
+    
+    Args:
+        models (list): List of models to synchronize.
+    """
     for model in models:
         for param in model.parameters():
             dist.broadcast(param.data, 0)
 
-
 def init_model(config: Config, dataset: BrainDataset):
+    """ Initializes the model and optimizer.
+    Creates multiple LatentEBM models based on config.ensembles.
+    Moves models to the configured device (CPU/GPU).
+    Initializes optimizers (Adam) for each model.
+    Args:
+        config (Config): Configuration object.
+        dataset (BrainDataset): Dataset object.
+    Returns:
+        models (list): List of models.
+        optimizers (list): List of optimizers.
+    """
     models = [LatentEBM(config, dataset).to(config.device) for _ in range(config.ensembles)]
     optimizers = [Adam(model.parameters(), lr=config.lr) for model in models]
     return models, optimizers
 
 
 def test(train_dataloader, models, config: Config, step=0): # NOT REFACTORED
+    """Tests the model by generating images using the learned model.
+    The key steps are:
+    1. Set the model to evaluation mode.
+    2. Generate latent embeddings for the input images.
+    3. Generate images using the learned model.
+    4. Compute gradients of the images.
+    5. Save the generated images and gradients.
+    Args:
+        train_dataloader (DataLoader): DataLoader object for training dataset.
+        models (list): List of models to test.
+        config (Config): Configuration object.
+        step (int): Current step of training.
+    Returns:
+        None
+    """
     [model.eval() for model in models]
     for im, idx in train_dataloader:
 
@@ -270,6 +322,24 @@ def test(train_dataloader, models, config: Config, step=0): # NOT REFACTORED
 
 
 def train(train_dataloader, test_dataloader, models: List[LatentEBM], optimizers: List[Adam], config: Config):
+    """Trains the model using the training dataset.
+    The key steps are:
+    1. Initialize the model and optimizer.
+    2. Iterate over the training dataset.
+    3. Generate negative samples using the learned model.
+    4. Compute the energy of the positive and negative samples.
+    5. Compute the loss and backpropagate the gradients.
+    6. Save the model checkpoint.
+
+    Args:
+        train_dataloader (DataLoader): DataLoader object for training dataset.
+        test_dataloader (DataLoader): DataLoader object for testing dataset.
+        models (list): List of models to train.
+        optimizers (list): List of optimizers for each model.
+        config (Config): Configuration object.
+    Returns:
+        None
+    """
     it = config.resume_iter
     [optimizer.zero_grad() for optimizer in optimizers]
 
@@ -327,6 +397,18 @@ def train(train_dataloader, test_dataloader, models: List[LatentEBM], optimizers
 
 
 def main_single(config: Config):
+    """Main function for training the model.
+    The key steps are:
+    1. Load the dataset.
+    2. Initialize the model and optimizer.
+    3. Create DataLoader objects for training and testing datasets.
+    4. Train the model.
+    5. Test the model.
+    Args:
+        config (Config): Configuration object.
+    Returns:
+        None
+    """
     dataset = BrainDataset(config.data_path)
     test_dataset = dataset
     
