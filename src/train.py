@@ -76,13 +76,22 @@ import tempfile
 
 # NOT REFACTORED
 def average_gradients(models):
-    size = float(dist.get_world_size())
+    """Averages the gradients across all models during distributed training.
+
+    Args:
+        models (list): List of models.
+        
+    Returns:
+        None"""
+    world_size = dist.get_world_size()
+    if world_size == 1:
+        return  # No need to average if only one process
+
     for model in models:
-        for name, param in model.named_parameters():
-            if param.grad is None:
-                continue
-            dist.all_reduce(param.grad.data, op=dist.reduce_op.SUM)
-            param.grad.data /= size
+        for param in model.parameters():
+            if param.grad is not None:
+                dist.all_reduce(param.grad, op=dist.ReduceOp.SUM)
+                param.grad /= world_size
 
 # NOT REFACTORED
 def gen_image(latents, FLAGS, models, im_neg, im, num_steps, sample=False, create_graph=True, idx=None, weights=None):
@@ -109,13 +118,10 @@ def gen_image(latents, FLAGS, models, im_neg, im, num_steps, sample=False, creat
     latents = torch.stack(latents, dim=0)
 
     if FLAGS.decoder:
-        masks = []
-        colors = []
-        for i in range(len(latents)):
-            if idx is not None and idx != i:
-                pass
-            else:
-                color, mask = models[i % FLAGS.components].forward(None, latents[i])
+        masks, colors = [], []
+        for i, latent in enumerate(latents):
+            if idx is None or idx == i:
+                color, mask = models[i % FLAGS.components].forward(None, latent)
                 masks.append(mask)
                 colors.append(color)
         masks = F.softmax(torch.stack(masks, dim=1), dim=1)
@@ -124,31 +130,17 @@ def gen_image(latents, FLAGS, models, im_neg, im, num_steps, sample=False, creat
         im_negs = [im_neg]
         im_grad = torch.zeros_like(im_neg)
     else:
-        im_neg.requires_grad_(requires_grad=True)
+        im_neg.requires_grad_(True)
         s = im.size()
-        masks = torch.zeros(s[0], FLAGS.components, s[-2], s[-1]).to(im_neg.device)
-        masks.requires_grad_(requires_grad=True)
+        masks = torch.zeros(s[0], FLAGS.components, s[-2], s[-1], device=im_neg.device)
+        masks.requires_grad_(True)
 
         for i in range(num_steps):
             im_noise.normal_()
-
-            energy = 0
-            for j in range(len(latents)):
-                if idx is not None and idx != j:
-                    pass
-                else:
-                    ix = j % FLAGS.components
-                    energy = models[j % FLAGS.components].forward(im_neg, latents[j]) + energy
-
+            energy = sum(models[j % FLAGS.components].forward(im_neg, latents[j]) for j in range(len(latents)) if idx is None or idx == j)
             im_grad, = torch.autograd.grad([energy.sum()], [im_neg], create_graph=create_graph)
-
-            im_neg = im_neg - FLAGS.step_lr * im_grad
-
-            latents = latents
-
-            im_neg = torch.clamp(im_neg, 0, 1)
-            im_negs.append(im_neg)
-            im_neg = im_neg.detach()
+            im_neg = torch.clamp(im_neg - FLAGS.step_lr * im_grad, 0, 1)
+            im_negs.append(im_neg.detach())
             im_neg.requires_grad_()
 
     return im_neg, im_negs, im_grad, masks
