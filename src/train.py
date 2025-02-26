@@ -75,6 +75,7 @@ import tempfile
 # parser.add_argument('--node_rank', default=0, type=int, help='rank of node')
 
 # NOT REFACTORED
+# Yhis function is never used???
 def average_gradients(models):
     """Averages the gradients across all models during distributed training.
 
