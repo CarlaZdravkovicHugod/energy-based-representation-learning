@@ -3,7 +3,6 @@ import h5py
 import os
 import numpy as np
 import matplotlib.pyplot as plt
-import glob
 from torch.utils.data import Dataset
 import nibabel as nib
 import nilearn.image as nim
@@ -39,7 +38,8 @@ class BrainDataset(Dataset):
 
 
     def get_slice_data():
-        """This function is used to extract the slice data from the 3D MRI images.
+        """
+        This function is used to extract the slice data from the 3D MRI images.
         The function will extract the slices at x = -5 and x = 5 from the center of the images.
         The extracted slices will be saved as binary numpy arrays.
         """
@@ -84,5 +84,5 @@ if __name__ == "__main__":
     print(dataset.get_data())
     print(dataset.get_slice_data())
     dataset.load_data()
-    print('Lenght of data set:', len(dataset))
+    print('Length of data set:', len(dataset))
     dataset.visualize(0)
