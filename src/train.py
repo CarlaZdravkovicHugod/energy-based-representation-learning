@@ -74,42 +74,46 @@ import tempfile
 # parser.add_argument('--gpus', default=1, type=int, help='number of gpus per nodes')
 # parser.add_argument('--node_rank', default=0, type=int, help='rank of node')
 
-# NOT REFACTORED
-# Yhis function is never used???
-def average_gradients(models):
-    """Averages the gradients across all models during distributed training.
 
+# Flags has not parameter decoder, if decoder is wanted, use function below.
+def gen_image_with_decoder(latents, config, models):
+    """
+    Generates an image using a learned model with a decoder by optimizing the image to minimize its energy.
+    
     Args:
+        latents (list): List of latent vectors.
+        config (Config): Configuration object.
         models (list): List of models.
-        
+    
     Returns:
-        None"""
-    world_size = dist.get_world_size()
-    if world_size == 1:
-        return  # No need to average if only one process
+        Tuple: Generated image, intermediate images, gradients, and masks.
+    """
+    masks, colors = [], []
+    for i, latent in enumerate(latents):
+        color, mask = models[i % config.components].forward(None, latent)
+        masks.append(mask)
+        colors.append(color)
+    masks = F.softmax(torch.stack(masks, dim=1), dim=1)
+    colors = torch.stack(colors, dim=1)
+    im_neg = torch.sum(masks * colors, dim=1)
+    im_negs = [im_neg]
+    im_grad = torch.zeros_like(im_neg)
+    return im_neg, im_negs, im_grad, masks
 
-    for model in models:
-        for param in model.parameters():
-            if param.grad is not None:
-                dist.all_reduce(param.grad, op=dist.ReduceOp.SUM)
-                param.grad /= world_size
 
-# NOT REFACTORED
-def gen_image(latents, FLAGS, models, im_neg, im, num_steps, sample=False, create_graph=True, idx=None, weights=None):
+def gen_image(latents, config, models, im_neg, im, num_steps, create_graph=True, idx=None):
     """
     Generates an image using a learned model by optimizing the image to minimize its energy.
     
     Args:
         latents (list): List of latent vectors.
-        FLAGS (Namespace): Configuration flags.
+        config (Config): Configuration object.
         models (list): List of models.
         im_neg (Tensor): Initial negative image.
         im (Tensor): Target image.
         num_steps (int): Number of optimization steps.
-        sample (bool): Whether to sample during generation.
         create_graph (bool): Whether to create a computational graph.
         idx (int, optional): Index for selecting specific latent vectors.
-        weights (Tensor, optional): Weights for combining latent vectors.
     
     Returns:
         Tuple: Generated image, intermediate images, gradients, and masks.
@@ -118,61 +122,22 @@ def gen_image(latents, FLAGS, models, im_neg, im, num_steps, sample=False, creat
     im_negs = []
     latents = torch.stack(latents, dim=0)
 
-    if FLAGS.decoder:
-        masks, colors = [], []
-        for i, latent in enumerate(latents):
-            if idx is None or idx == i:
-                color, mask = models[i % FLAGS.components].forward(None, latent)
-                masks.append(mask)
-                colors.append(color)
-        masks = F.softmax(torch.stack(masks, dim=1), dim=1)
-        colors = torch.stack(colors, dim=1)
-        im_neg = torch.sum(masks * colors, dim=1)
-        im_negs = [im_neg]
-        im_grad = torch.zeros_like(im_neg)
-    else:
-        im_neg.requires_grad_(True)
-        s = im.size()
-        masks = torch.zeros(s[0], FLAGS.components, s[-2], s[-1], device=im_neg.device)
-        masks.requires_grad_(True)
+    im_neg.requires_grad_(True)
+    s = im.size()
+    masks = torch.zeros(s[0], config.components, s[-2], s[-1], device=im_neg.device)
+    masks.requires_grad_(True)
 
-        for i in range(num_steps):
-            im_noise.normal_()
-            energy = sum(models[j % FLAGS.components].forward(im_neg, latents[j]) for j in range(len(latents)) if idx is None or idx == j)
-            im_grad, = torch.autograd.grad([energy.sum()], [im_neg], create_graph=create_graph)
-            im_neg = torch.clamp(im_neg - FLAGS.step_lr * im_grad, 0, 1)
-            im_negs.append(im_neg.detach())
-            im_neg.requires_grad_()
+    for i in range(num_steps):
+        im_noise.normal_()
+        energy = sum(models[j % config.components].forward(im_neg, latents[j]) for j in range(len(latents)) if idx is None or idx == j)
+        im_grad, = torch.autograd.grad([energy.sum()], [im_neg], create_graph=create_graph)
+        im_neg = torch.clamp(im_neg - config.step_lr * im_grad, 0, 1)
+        im_negs.append(im_neg.detach())
+        im_neg.requires_grad_()
 
     return im_neg, im_negs, im_grad, masks
 
 
-def ema_model(models, models_ema, mu=0.999): # NOT REFACTORED
-    """Updates the EMA model parameters based on the current model parameters.
-    
-    Args:
-        models (list): List of models.
-        models_ema (list): List of EMA models.
-        mu (float): Decay factor for EMA.
-
-    Returns:
-        None
-    """
-
-    for (model, model_ema) in zip(models, models_ema):
-        for param, param_ema in zip(model.parameters(), model_ema.parameters()):
-            param_ema.data[:] = mu * param_ema.data + (1 - mu) * param.data
-
-
-def sync_model(models):
-    """Synchronizes the model parameters across all nodes to ensure consistency during distributed training.
-    
-    Args:
-        models (list): List of models to synchronize.
-    """
-    for model in models:
-        for param in model.parameters():
-            dist.broadcast(param.data, 0)
 
 def init_model(config: Config, dataset: BrainDataset):
     """ Initializes the model and optimizer.
@@ -333,7 +298,7 @@ def train(train_dataloader, test_dataloader, models: List[LatentEBM], optimizers
     Returns:
         None
     """
-    it = config.resume_iter
+    it = config.resume_iter # no var resum_iter in config, # could be removed
     [optimizer.zero_grad() for optimizer in optimizers]
 
     for _ in range(config.num_epoch):
