@@ -19,7 +19,7 @@ def get_slice_data():
         The extracted slices will be saved as binary numpy arrays.
         """
 
-    # this should be the hpc path:
+    # this should be the hpc path to data when it is uploaded
         fns = glob.glob('/mnt/projects/KHM/nobackup/SRPBS/SRPBS_OPEN/out*/fmriprep/sub-*/anat/sub-*_space-MNI152NLin2009cAsym_desc-preproc_T1w.nii.gz')
         outdir = os.path.join(os.path.dirname(__file__), 'slicedata/')
 
