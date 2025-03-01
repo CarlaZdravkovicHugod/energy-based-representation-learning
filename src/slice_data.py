@@ -5,6 +5,13 @@ import glob
 import scipy.ndimage as ndi
 from PIL import Image
 
+
+# Scratch folders for HPC:
+#  $ ls -ld /work3/s224195 /work3/s224209
+# drwxr-x--- 2 s224195 s224209s224195 0 Feb 19 15:05 /work3/s224195
+# drwxr-x--- 2 s224209 s224209s224195 0 Feb 19 15:05 /work3/s224209
+
+
 def get_slice_data():
         """
         This function is used to extract the slice data from the 3D MRI images.
