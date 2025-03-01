@@ -82,6 +82,7 @@ class BrainDataset(Dataset):
 if __name__ == "__main__":
     dataset = BrainDataset()
     print(dataset.get_data())
+    print(dataset.get_slice_data())
     dataset.load_data()
     print('Lenght of data set:', len(dataset))
     dataset.visualize(0)
