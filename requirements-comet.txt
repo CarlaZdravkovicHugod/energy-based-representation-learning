@@ -35,6 +35,7 @@ networkx
 neptune
 numpy
 nibabel
+nilearn
 opencv-python
 opt_einsum
 optree

@@ -3,9 +3,15 @@ import h5py
 import os
 import numpy as np
 import matplotlib.pyplot as plt
-import glob
 from torch.utils.data import Dataset
+import nibabel as nib
+import nilearn.image as nim
+import glob
+import scipy.ndimage as ndi
+from PIL import Image
 
+
+# ny fil til at slice data og fjern herfra
 class BrainDataset(Dataset):
     def __init__(self):
         self.path = kagglehub.dataset_download("balakrishcodes/brain-2d-mri-imgs-and-mask")
@@ -40,5 +46,5 @@ if __name__ == "__main__":
     dataset = BrainDataset()
     print(dataset.get_data())
     dataset.load_data()
-    print('Lenght of data set:', len(dataset))
+    print('Length of data set:', len(dataset))
     dataset.visualize(0)
