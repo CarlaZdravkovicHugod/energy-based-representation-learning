@@ -1,0 +1,13 @@
+{
+    "run_name": "experiment_01",
+    "test_run": false,
+    "batch_size": 32,
+    "data_workers": 4,
+    "shuffle_dataset": true,
+    "num_epoch": 50,
+    "lr": 0.001,
+    "components": 10,
+    "ensembles": 5,
+    "data_path": "data/"
+  }
+  
