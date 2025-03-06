@@ -3,6 +3,7 @@ Neptune Logger for logging metrics, models, and metadata to Neptune.
 """
 
 import neptune
+import os
 
 class NeptuneLogger:
     def __init__(self, test=False):

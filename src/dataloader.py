@@ -27,6 +27,8 @@ class BrainDataset(Dataset):
         self.data = []
         for filename in os.listdir(self.path):
             self.data.append(np.load(str(self.path / filename)))
+        
+        return self.data
 
     def visualize(self, idx: int) -> None:
         if self.data is None:

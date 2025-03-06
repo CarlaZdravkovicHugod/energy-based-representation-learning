@@ -1,10 +1,11 @@
 import torch
 from typing import List
-from comet.models import LatentEBM, ToyEBM, BetaVAE_H, LatentEBM128
+from comet_models import LatentEBM, ToyEBM, BetaVAE_H, LatentEBM128
 import torch.nn.functional as F
 import os
+import logging
 from dataloader import BrainDataset
-import torch.multiprocessing as mp
+#import torch.multiprocessing as mp
 import torch.distributed as dist
 from torch.optim import Adam
 from torch.utils.tensorboard import SummaryWriter
@@ -15,67 +16,13 @@ from imageio import imwrite
 import argparse
 import random
 from torchvision.utils import make_grid
-from src.config.load_config import load_config, Config
+from config.load_config import load_config, Config
 from tqdm import tqdm
 import tempfile
 
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# """Parse input arguments"""
-# parser = argparse.ArgumentParser(description='Train EBM model')
-
-# parser.add_argument('--train', action='store_true', help='whether or not to train')
-# parser.add_argument('--optimize_test', action='store_true', help='whether or not to train')
-# parser.add_argument('--cuda', action='store_true', help='whether to use cuda or not')
-# parser.add_argument('--single', action='store_true', help='test overfitting of the dataset')
-
-
-# parser.add_argument('--dataset', default='blender', type=str, help='Dataset to use (intphys or others or imagenet or cubes)')
-# parser.add_argument('--logdir', default='cachedir', type=str, help='location where log of experiments will be stored')
-# parser.add_argument('--exp', default='default', type=str, help='name of experiments')
-
-# # training
-# parser.add_argument('--resume_iter', default=0, type=int, help='iteration to resume training')
-# parser.add_argument('--batch_size', default=64, type=int, help='size of batch of input to use')
-# parser.add_argument('--num_epoch', default=10000, type=int, help='number of epochs of training to run')
-# parser.add_argument('--lr', default=1e-4, type=float, help='learning rate for training')
-# parser.add_argument('--log_interval', default=10, type=int, help='log outputs every so many batches')
-# parser.add_argument('--save_interval', default=1000, type=int, help='save outputs every so many batches')
-
-# # data
-# parser.add_argument('--data_workers', default=4, type=int, help='Number of different data workers to load data in parallel')
-# parser.add_argument('--ensembles', default=1, type=int, help='use an ensemble of models')
-# parser.add_argument('--vae-beta', type=float, default=0.)
-
-# # EBM specific settings
-
-# # Model specific settings
-# parser.add_argument('--filter_dim', default=64, type=int, help='number of filters to use')
-# parser.add_argument('--components', default=2, type=int, help='number of components to explain an image with')
-# parser.add_argument('--component_weight', action='store_true', help='optimize for weights of the components also')
-# parser.add_argument('--tie_weight', action='store_true', help='tie the weights between seperate models')
-# parser.add_argument('--optimize_mask', action='store_true', help='also optimize a segmentation mask over image')
-# parser.add_argument('--recurrent_model', action='store_true', help='use a recurrent model to infer latents')
-# parser.add_argument('--pos_embed', action='store_true', help='add a positional embedding to model')
-# parser.add_argument('--spatial_feat', action='store_true', help='use spatial latents for object segmentation')
-
-
-# parser.add_argument('--num_steps', default=10, type=int, help='Steps of gradient descent for training')
-# parser.add_argument('--num_visuals', default=16, type=int, help='Number of visuals')
-# parser.add_argument('--num_additional', default=0, type=int, help='Number of additional components to add')
-
-# parser.add_argument('--step_lr', default=500.0, type=float, help='step size of latents')
-
-# parser.add_argument('--latent_dim', default=64, type=int, help='dimension of the latent')
-# parser.add_argument('--sample', action='store_true', help='generate negative samples through Langevin')
-# parser.add_argument('--decoder', action='store_true', help='decoder for model')
-
-# # Distributed training hyperparameters
-# parser.add_argument('--nodes', default=1, type=int, help='number of nodes for training')
-# parser.add_argument('--gpus', default=1, type=int, help='number of gpus per nodes')
-# parser.add_argument('--node_rank', default=0, type=int, help='rank of node')
-
-
-# Flags has not parameter decoder, if decoder is wanted, use function below.
 def gen_image_with_decoder(latents, config, models):
     """
     Generates an image using a learned model with a decoder by optimizing the image to minimize its energy.
@@ -129,8 +76,8 @@ def gen_image(latents, config, models, im_neg, im, num_steps, create_graph=True,
 
     for i in range(num_steps):
         im_noise.normal_()
-        energy = sum(models[j % config.components].forward(im_neg, latents[j]) for j in range(len(latents)) if idx is None or idx == j)
-        im_grad, = torch.autograd.grad([energy.sum()], [im_neg], create_graph=create_graph)
+        energy = sum(models[j % len(models)].forward(im_neg, latents[j]) for j in range(len(latents)) if idx is None or idx == j) # using len(models) instead of number of components
+        im_grad, = torch.autograd.grad([energy.sum()], [im_neg], create_graph=False) # TODO: change to true if needed
         im_neg = torch.clamp(im_neg - config.step_lr * im_grad, 0, 1)
         im_negs.append(im_neg.detach())
         im_neg.requires_grad_()
@@ -273,7 +220,7 @@ def test(train_dataloader, models, config: Config, step=0): # NOT REFACTORED
             im_neg_additional = im_neg_additional.numpy()*255
             imwrite("result/%s/s%08d_gen_add.png" % (config.exp,step), im_neg_additional)
 
-            print('test at step %d done!' % step)
+            logging.info('Test at step %d done!' % step)
         break
 
     [model.train() for model in models]
@@ -298,25 +245,27 @@ def train(train_dataloader, test_dataloader, models: List[LatentEBM], optimizers
     Returns:
         None
     """
-    it = config.resume_iter # no var resum_iter in config, # could be removed
+    it = 0 # no var resum_iter in config,
     [optimizer.zero_grad() for optimizer in optimizers]
 
-    for _ in range(config.num_epoch):
-        for it, (im, idx) in enumerate(train_dataloader):
+    for it in tqdm(range(config.num_epoch)):
+        for idx,im in enumerate(train_dataloader):
 
             im = im.to(config.device)
-            idx = idx.to(config.device)
-
+            #idx = idx.to(config.device) # you cant do that on an int, such as index, not sure why it would make sense either
+            im = im.unsqueeze(1).repeat(1,3,1,1) # add channel dimension (RGB = 3 channels)
             latent = models[0].embed_latent(im)
             latents = torch.chunk(latent, config.components, dim=1)
 
             im_neg = torch.rand_like(im)
-            im_neg, im_negs, im_grad, _ = gen_image(latents, config, models, im_neg, im,)
+            logging.info('Generating image')
+            im_neg, im_negs, im_grad, _ = gen_image(latents, config, models, im_neg, im,num_steps=1) # TODO: choose number of optimization steps
 
             im_negs = torch.stack(im_negs, dim=1)
 
             energy_poss = []
             energy_negs = []
+
             for i in range(config.components): # i % config.ensembles may be wrong
                 energy_poss.append(models[i % config.ensembles].forward(im, latents[i]))
                 energy_negs.append(models[i % config.ensembles].forward(im_neg.detach(), latents[i]))
@@ -328,9 +277,10 @@ def train(train_dataloader, test_dataloader, models: List[LatentEBM], optimizers
             im_loss = torch.pow(im_negs[:, -1:] - im[:, None], 2).mean()
             loss = im_loss + 0.1 * ml_loss
             loss.backward()
-            config.NeptuneLogger.log_metric("im_loss", im_loss, step=it)
-            config.NeptuneLogger.log_metric("ml_loss", ml_loss, step=it)
-            config.NeptuneLogger.log_metric("loss", loss, step=it)
+            logging.info(f'Iteration {idx}')
+            config.NeptuneLogger.log_metric("im_loss", im_loss, step=idx) # TODO: check it, should not be 0
+            config.NeptuneLogger.log_metric("ml_loss", ml_loss, step=idx)
+            config.NeptuneLogger.log_metric("loss", loss, step=idx)
             
             [torch.nn.utils.clip_grad_norm_(model.parameters(), 10.0) for model in models]
             [optimizer.step() for optimizer in optimizers]
@@ -348,8 +298,8 @@ def train(train_dataloader, test_dataloader, models: List[LatentEBM], optimizers
 
             torch.save(ckpt, model_path)
             config.NeptuneLogger.log_model(model_path, name="model_it{}".format(it))
-            print("Saving model in directory....")
-        print('Now running test...')
+            logging.info("Saving model in directory....")
+        logging.info('Now running test...')
 
         test(test_dataloader, models, config, step=it)
 
@@ -367,8 +317,10 @@ def main_single(config: Config):
     Returns:
         None
     """
-    dataset = BrainDataset(config.data_path)
-    test_dataset = dataset
+    dataset = BrainDataset().load_data() # BrainDataset(config.data_path)
+    train_size = int(config.train_data_size * len(dataset))
+    test_size = len(dataset) - train_size
+    dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
     
     models, optimizers = init_model(config, dataset)
     models = [model.train() for model in models]
@@ -386,9 +338,13 @@ def main(config: Config):
 
 
 if __name__ == "__main__":
+
+    import sys
+    sys.argv = ['train.py', '--config', 'src/config/config.json']  # Mock the command-line arguments for local development
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, required=True, help="Path to config file")
     args = parser.parse_args()
     
-    config = load_config(args.config)
+    config = load_config('src/config/config.json')
     main(config)
