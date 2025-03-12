@@ -31,6 +31,11 @@ class Config:
     dataset: str # dataset to use, SRPBS
     steps: int # TODO: determine
 
+    def to_dict(self):
+        copy = self.__dict__.copy()
+        copy["NeptuneLogger"] = None
+        return copy
+
 
 def logic_check(config_dict: dict):
     if os.environ["NEPTUNE_API_TOKEN"] is None:
