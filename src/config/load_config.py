@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 import os
 import torch
-import omegaconf
+import yaml
 from dotenv import load_dotenv
 
 from src.utils.neptune_logger import NeptuneLogger
@@ -42,13 +42,15 @@ def load_config(config_path: str) -> Config:
     if not os.path.exists(config_path):
         raise FileNotFoundError(f"Config file not found at: {config_path}")
 
-    config_dict = omegaconf.OmegaConf.load(config_path)
-    config_dict = logic_check(config_dict)
+    with open(config_path, 'r') as f:
+        config_dict = yaml.safe_load(f)
+
+    config = logic_check(config_dict)
 
     return Config(
-        **config_dict,
+        **config,
         device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
-        NeptuneLogger=NeptuneLogger(config_dict['test_run']),
+        NeptuneLogger=NeptuneLogger(config["test_run"]),
     )
 
 if __name__ == "__main__":

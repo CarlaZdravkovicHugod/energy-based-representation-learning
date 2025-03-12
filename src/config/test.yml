@@ -1,5 +1,5 @@
 run_name: "experiment_01"
-test_run: false
+test_run: true
 batch_size: 2
 data_workers: 0
 shuffle_dataset: true

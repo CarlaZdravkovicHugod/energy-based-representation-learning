@@ -28,6 +28,7 @@ class BrainDataset(Dataset):
             self.data.append(np.load(str(self.path / filename)))
 
         logging.info(f'Data loaded: Number of datapoints = {len(self.data)}')
+        assert len(self.data) == 2 or not self.test_run, f'Expected 2 datapoints, got {len(self.data)}'
         return self.data
 
     def visualize(self, idx: int) -> None:
