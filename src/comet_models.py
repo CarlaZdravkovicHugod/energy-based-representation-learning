@@ -1,9 +1,8 @@
-from torch.nn import ModuleList
 import torch.nn.functional as F
 import torch.nn as nn
 import torch
 from easydict import EasyDict
-from downsample import Downsample
+from src.downsample import Downsample
 import numpy as np
 
 
@@ -40,7 +39,6 @@ def reparametrize(mu, logvar):
     return mu + std*eps
 
 
-
 class Self_Attn(nn.Module):
     """ Self attention Layer. This layer is used to compute the attention weights for the input feature maps."""
     def __init__(self,in_dim,activation):
@@ -48,9 +46,9 @@ class Self_Attn(nn.Module):
         self.chanel_in = in_dim
         self.activation = activation
 
-        self.query_conv = nn.Conv2d(in_channels = in_dim , out_channels = in_dim//8 , kernel_size= 1)
-        self.key_conv = nn.Conv2d(in_channels = in_dim , out_channels = in_dim//8 , kernel_size= 1)
-        self.value_conv = nn.Conv2d(in_channels = in_dim , out_channels = in_dim , kernel_size= 1)
+        self.query_conv = nn.Conv2d(in_channels = in_dim, out_channels = in_dim//8, kernel_size= 1)
+        self.key_conv = nn.Conv2d(in_channels = in_dim, out_channels = in_dim//8, kernel_size= 1)
+        self.value_conv = nn.Conv2d(in_channels = in_dim, out_channels = in_dim, kernel_size= 1)
         self.gamma = nn.Parameter(torch.zeros(1))
 
         self.softmax  = nn.Softmax(dim=-1) #
@@ -63,11 +61,11 @@ class Self_Attn(nn.Module):
                 out : self attention value + input feature
                 attention: B X N X N (N is Width*Height)
         """
-        m_batchsize,C,width ,height = x.size()
+        m_batchsize,C,width,height = x.size()
         proj_query  = self.query_conv(x).view(m_batchsize,-1,width*height).permute(0,2,1) # B X CX(N)
         proj_key =  self.key_conv(x).view(m_batchsize,-1,width*height) # B X C x (*W*H)
         energy =  torch.bmm(proj_query,proj_key) # transpose check
-        attention = self.softmax(energy) # BX (N) X (N) 
+        attention = self.softmax(energy) # BX (N) X (N)
         proj_value = self.value_conv(x).view(m_batchsize,-1,width*height) # B X C X N
 
         out = torch.bmm(proj_value,attention.permute(0,2,1) )
@@ -104,7 +102,6 @@ class CondResBlock(nn.Module):
         else:
             self.bn2 = nn.GroupNorm(32, filters, affine=False)
 
-
         torch.nn.init.normal_(self.conv2.weight, mean=0.0, std=1e-5)
 
         # Upscale to an mask of image
@@ -135,7 +132,6 @@ class CondResBlock(nn.Module):
         x = self.conv1(x)
         x = gain * x + bias
         x = swish(x)
-
 
         x = self.conv2(x)
         x = gain2 * x + bias2
@@ -192,7 +188,6 @@ class CondResBlockNoLatent(nn.Module):
     def forward(self, x):
         x_orig = x
 
-
         x = self.conv1(x)
         x = swish(x)
 
@@ -239,7 +234,6 @@ class BroadcastConvDecoder(nn.Module):
         x = torch.linspace(0, 1, self.im_size)
         y = torch.linspace(0, 1, self.im_size)
         self.x_grid, self.y_grid = torch.meshgrid(x, y)
-
 
     def broadcast(self, z):
         b = z.size(0)
@@ -409,10 +403,8 @@ class LatentEBM128(nn.Module):
 
             inter = torch.cat([inter, pos_inter], dim=1)
 
-
         x = self.layer_encode(inter, latent)
         x = self.layer1(x, latent)
-
 
         x = self.layer2(x, latent)
         x = self.layer3(x, latent)
@@ -608,7 +600,6 @@ class ToyEBM(nn.Module):
         self.layer1 = CondResBlock(filters=filter_dim, latent_dim=latent_dim, rescale=False)
         self.layer2 = CondResBlock(filters=filter_dim, latent_dim=latent_dim)
 
-
         self.fc1 = nn.Linear(filter_dim * 2, filter_dim * 2)
 
         self.latent_map = nn.Linear(latent_dim, filter_dim * 8)
@@ -621,7 +612,6 @@ class ToyEBM(nn.Module):
         self.embed_fc2 = nn.Linear(filter_dim * 2, latent_dim_expand)
 
         self.steps = torch.nn.parameter.Parameter(torch.ones(args.num_steps), requires_grad=True)
-
 
     def embed_latent(self, im):
         x = self.embed_conv1(im)
@@ -643,7 +633,6 @@ class ToyEBM(nn.Module):
         x = self.layer2(x, latent)
         x = x.mean(dim=2).mean(dim=2)
         x = x.view(x.size(0), -1)
-
 
         x = swish(self.fc1(x))
         energy = self.energy_map(x)

@@ -1,24 +1,21 @@
 import torch
 from typing import List
-from comet_models import LatentEBM, ToyEBM, BetaVAE_H, LatentEBM128
+from comet_models import LatentEBM
 import torch.nn.functional as F
-import os
 import logging
-from dataloader import BrainDataset
-#import torch.multiprocessing as mp
-import torch.distributed as dist
 from torch.optim import Adam
-from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 import os.path as osp
 import numpy as np
 from imageio import imwrite
 import argparse
-import random
 from torchvision.utils import make_grid
-from config.load_config import load_config, Config
 from tqdm import tqdm
 import tempfile
+
+
+from src.config.load_config import load_config, Config
+from src.dataloader import BrainDataset
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -83,7 +80,6 @@ def gen_image(latents, config, models, im_neg, im, num_steps, create_graph=True,
         im_neg.requires_grad_()
 
     return im_neg, im_negs, im_grad, masks
-
 
 
 def init_model(config: Config, dataset: BrainDataset):
@@ -281,7 +277,7 @@ def train(train_dataloader, test_dataloader, models: List[LatentEBM], optimizers
             config.NeptuneLogger.log_metric("im_loss", im_loss, step=idx) # TODO: check it, should not be 0
             config.NeptuneLogger.log_metric("ml_loss", ml_loss, step=idx)
             config.NeptuneLogger.log_metric("loss", loss, step=idx)
-            
+
             [torch.nn.utils.clip_grad_norm_(model.parameters(), 10.0) for model in models]
             [optimizer.step() for optimizer in optimizers]
             [optimizer.zero_grad() for optimizer in optimizers]
@@ -317,11 +313,11 @@ def main_single(config: Config):
     Returns:
         None
     """
-    dataset = BrainDataset().load_data() # BrainDataset(config.data_path)
+    dataset = BrainDataset(config).load_data() # BrainDataset(config.data_path)
     train_size = int(config.train_data_size * len(dataset))
     test_size = len(dataset) - train_size
     dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
-    
+
     models, optimizers = init_model(config, dataset)
     models = [model.train() for model in models]
 
@@ -339,12 +335,9 @@ def main(config: Config):
 
 if __name__ == "__main__":
 
-    import sys
-    sys.argv = ['train.py', '--config', 'src/config/config.json']  # Mock the command-line arguments for local development
-
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str, required=True, help="Path to config file")
+    parser.add_argument("--config", type=str, required=False, help="Path to config file", default='src/config/test.yml')
     args = parser.parse_args()
-    
-    config = load_config('src/config/config.json')
+
+    config = load_config(args.config)
     main(config)
