@@ -3,7 +3,7 @@ import yaml
 import os
 from pathlib import Path
 import torch
-from src.utils.neptune_logger import NeptuneLogger
+from utils.neptune_logger import NeptuneLogger
 
 @dataclass
 class Config:
@@ -12,12 +12,20 @@ class Config:
     device: torch.device
     NeptuneLogger: NeptuneLogger
     batch_size: int
-    data_workers: int
+    data_workers: int # TODO: determine
     shuffle_dataset: bool
-    num_epoch: int
+    num_epoch: int # TODO: determine
     lr: float
-    components: int
+    step_lr: float # TODO: determine
+    components: int # TODO: determine
     ensembles: int # not sure what this is :/
+    data_path: str
+    train_data_size: float # TODO: determine
+    filter_dim: int # number of filters to use
+    latent_dim: int # latent dimension
+    pos_embed: bool # use positional embedding
+    recurrent_model: bool # use a recurrent model to infer the latents
+    dataset: str # dataset to use, SRPBS
 
 
 def logic_check(config_dict: dict):
@@ -32,7 +40,7 @@ def load_config(config_path: str) -> Config:
         
     with open(config_path, 'r') as f:
         config_dict = yaml.safe_load(f)
-    config_dict = logic_check(config_dict)
+    #config_dict = logic_check(config_dict)
     
     # debug = Debug(**config_dict['debug'])
     

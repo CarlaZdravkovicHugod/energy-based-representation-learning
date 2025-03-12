@@ -52,6 +52,7 @@ requests
 rich
 scikit-image
 scipy
+seaborn
 setuptools
 six
 stack-data
