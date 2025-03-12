@@ -13,7 +13,6 @@ from torchvision.utils import make_grid
 from tqdm import tqdm
 import tempfile
 
-
 from src.config.load_config import load_config, Config
 from src.dataloader import BrainDataset
 
@@ -284,7 +283,8 @@ def train(train_dataloader, test_dataloader, models: List[LatentEBM], optimizers
 
         with tempfile.TemporaryDirectory() as temp_dir:
             model_path = osp.join(temp_dir, "model_{}.pth".format(it))
-            ckpt = {'config': config}
+            # convert to dict
+            ckpt = {'config': config.to_dict()}
 
             for i in range(len(models)):
                 ckpt['model_state_dict_{}'.format(i)] = models[i].state_dict()
@@ -293,7 +293,7 @@ def train(train_dataloader, test_dataloader, models: List[LatentEBM], optimizers
                 ckpt['optimizer_state_dict_{}'.format(i)] = optimizers[i].state_dict()
 
             torch.save(ckpt, model_path)
-            config.NeptuneLogger.log_model(model_path, name="model_it{}".format(it))
+            config.NeptuneLogger.log_model(model_path, file_name="model_it{}".format(it))
             logging.info("Saving model in directory....")
         logging.info('Now running test...')
 
