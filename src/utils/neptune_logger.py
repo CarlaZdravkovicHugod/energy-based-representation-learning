@@ -6,12 +6,13 @@ import neptune
 import os
 
 class NeptuneLogger:
-    def __init__(self, test=False):
+    def __init__(self, test=False, description=None):
         self.test = test
         self.run = neptune.init_run(
             project=os.environ["NEPTUNE_PROJECT_NAME"],
             mode="offline" if test else "async",
             api_token=os.environ["NEPTUNE_API_TOKEN"],
+            description=description
         )
 
     def log_metadata(self, metadata):
@@ -42,7 +43,8 @@ class NeptuneLogger:
 if __name__ == "__main__":
     import os
     logger = NeptuneLogger(
-        test=False
+        test=False,
+        description="Test run"
     )
     logger.run["metric"].append(1.0)
     logger.run["metric"].append(0.5)

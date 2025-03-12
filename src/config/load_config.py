@@ -55,7 +55,8 @@ def load_config(config_path: str) -> Config:
     return Config(
         **config,
         device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
-        NeptuneLogger=NeptuneLogger(config["test_run"]),
+        # NeptuneLogger=NeptuneLogger(config["test_run"], description=config["run_name"]),
+        NeptuneLogger=NeptuneLogger(test=False, description=config["run_name"])
     )
 
 if __name__ == "__main__":
