@@ -17,7 +17,7 @@ from src.config.load_config import load_config, Config
 from src.dataloader import BrainDataset
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s')
 
 def gen_image_with_decoder(latents, config, models):
     """
@@ -244,7 +244,7 @@ def train(train_dataloader, test_dataloader, models: List[LatentEBM], optimizers
     [optimizer.zero_grad() for optimizer in optimizers]
 
     for it in tqdm(range(config.num_epoch)):
-        for idx,im in enumerate(train_dataloader):
+        for idx,im in tqdm(enumerate(train_dataloader)):
 
             im = im.to(config.device)
             #idx = idx.to(config.device) # you cant do that on an int, such as index, not sure why it would make sense either
@@ -272,7 +272,8 @@ def train(train_dataloader, test_dataloader, models: List[LatentEBM], optimizers
             im_loss = torch.pow(im_negs[:, -1:] - im[:, None], 2).mean()
             loss = im_loss + 0.1 * ml_loss
             loss.backward()
-            logging.info(f'Iteration {idx}')
+            logging.info(f'Iteration {idx}') # remove if tqdm works
+            # TODO: add warning/logging if loss is nan
             config.NeptuneLogger.log_metric("im_loss", im_loss, step=idx) # TODO: check it, should not be 0
             config.NeptuneLogger.log_metric("ml_loss", ml_loss, step=idx)
             config.NeptuneLogger.log_metric("loss", loss, step=idx)
