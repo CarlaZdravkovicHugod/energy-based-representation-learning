@@ -8,7 +8,7 @@ import logging
 import torch.utils.data as data
 from src.config.load_config import Config
 import torch
-import glob
+from glob import glob
 from skimage.transform import resize as imresize
 from imageio import imread
 
@@ -68,7 +68,6 @@ class Clevr(data.Dataset):
         im = imresize(im, (64, 64))[:, :, :3]
 
         im = torch.Tensor(im).permute(2, 0, 1)
-        print(f'From dataset.py, using dataset Clevr, index: {index}, shape: {im.shape}')
 
         return im, index
     

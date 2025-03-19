@@ -1,9 +1,9 @@
-run_name: "Clevr data on our code"
+run_name: "Clevr data on our code" # corresponds to exp
 test_run: true
 batch_size: 12
 data_workers: 0
 shuffle_dataset: true
-num_epoch: 2
+num_epoch: 100
 lr: 0.001
 step_lr: 50.0
 components: 4
@@ -14,5 +14,47 @@ filter_dim: 64
 latent_dim: 64
 pos_embed: false
 recurrent_model: false
-dataset: "SRPBS"
 steps: 10
+dataset: "clevr"
+num_steps: 10
+num_visuals: 16
+log_interval: 10
+save_interval: 100
+gpus: 0
+num_additional: 0
+exp: run_name;clevr data on our code
+config_path: 'src/config/clevr_config.yml'
+resume_iter: 0
+node_rank: 0
+nodes: 1
+logdir: 'src/results/'
+train: True
+tie_weight: False
+sample: False
+decoder: False
+
+# decoder
+# sample
+
+
+
+
+    # config.resume_iter = config_OLD.resume_iter
+    #     config.save_interval = config_OLD.save_interval
+    #     config.nodes = config_OLD.nodes
+    #     config.gpus = config_OLD.gpus
+    #     config.node_rank = config_OLD.node_rank
+    #     config.train = config_OLD.train
+    #     config.batch_size = config_OLD.batch_size
+    #     config.num_visuals = config_OLD.num_visuals
+    #     config.num_additional = config_OLD.num_additional
+    #     config.decoder = config_OLD.decoder
+    #     config.optimize_test = config_OLD.optimize_test
+    #     config.temporal = config_OLD.temporal
+    #     config.sim = config_OLD.sim
+    #     config.exp = config_OLD.exp
+    #     config.step_lr = config_OLD.step_lr
+    #     config.num_steps = config_OLD.num_steps
+    #     config.vae_beta = config_OLD.vae_beta
+
+# train

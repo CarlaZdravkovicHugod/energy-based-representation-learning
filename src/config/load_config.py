@@ -30,7 +30,24 @@ class Config:
     recurrent_model: bool # use a recurrent model to infer the latents
     dataset: str # dataset to use, SRPBS
     steps: int # TODO: determine
-
+    dataset:str
+    num_steps: int
+    num_visuals: int
+    log_interval: int
+    save_interval: int
+    gpus: int
+    num_additional: int
+    exp: str
+    config_path: str
+    resume_iter: int
+    node_rank: int
+    nodes: int
+    logdir: str
+    train: bool
+    tie_weight: bool
+    sample: bool
+    decoder: bool
+    
     def to_dict(self):
         copy = self.__dict__.copy()
         copy["NeptuneLogger"] = None

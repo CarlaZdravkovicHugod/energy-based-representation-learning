@@ -1,124 +1,217 @@
+import os
+import sys
 import torch
-from typing import List
-from comet_models import LatentEBM
 import torch.nn.functional as F
-import logging
+import torch.multiprocessing as mp
+import torch.distributed as dist
 from torch.optim import Adam
+from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
-import os.path as osp
-import numpy as np
-from imageio import imwrite
-import argparse
+from torch.nn.utils import clip_grad_norm
+from torch.nn.parallel.distributed import DistributedDataParallel as DDP
+import torch.backends.cudnn as cudnn
+import torchvision.transforms as transforms
 from torchvision.utils import make_grid
-from tqdm import tqdm
+from easydict import EasyDict
+import numpy as np
+from imageio import imwrite, get_writer
+import cv2
+import argparse
+import os.path as osp
+import random
+import logging
 import tempfile
-
+from tqdm import tqdm
+from src.comet_models import LatentEBM, ToyEBM, BetaVAE_H, LatentEBM128
+from dataloader import Clevr, BrainDataset
+logging.getLogger("tensorflow").setLevel(logging.ERROR)
+import tensorflow as tf
+import warnings
+warnings.filterwarnings("ignore")
+tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
+parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(parent_dir)
+from src.utils.neptune_logger import NeptuneLogger
 from src.config.load_config import load_config, Config
-from src.dataloader import BrainDataset
+import lpips
 
-# Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s')
 
-def gen_image_with_decoder(latents, config, models):
-    """
-    Generates an image using a learned model with a decoder by optimizing the image to minimize its energy.
-    
-    Args:
-        latents (list): List of latent vectors.
-        config (Config): Configuration object.
-        models (list): List of models.
-    
-    Returns:
-        Tuple: Generated image, intermediate images, gradients, and masks.
-    """
-    masks, colors = [], []
-    for i, latent in enumerate(latents):
-        color, mask = models[i % config.components].forward(None, latent)
-        masks.append(mask)
-        colors.append(color)
-    masks = F.softmax(torch.stack(masks, dim=1), dim=1)
-    colors = torch.stack(colors, dim=1)
-    im_neg = torch.sum(masks * colors, dim=1)
-    im_negs = [im_neg]
-    im_grad = torch.zeros_like(im_neg)
-    return im_neg, im_negs, im_grad, masks
+# """Parse input arguments"""
+# parser = argparse.ArgumentParser(description='Train EBM model')
+
+# parser.add_argument('--train', action='store_true', help='whether or not to train')
+# parser.add_argument('--optimize_test', action='store_true', help='whether or not to train')
+# parser.add_argument('--cuda', action='store_true', help='whether to use cuda or not')
+# parser.add_argument('--single', action='store_true', help='test overfitting of the dataset')
 
 
-def gen_image(latents, config, models, im_neg, im, num_steps, create_graph=True, idx=None):
-    """
-    Generates an image using a learned model by optimizing the image to minimize its energy.
-    
-    Args:
-        latents (list): List of latent vectors.
-        config (Config): Configuration object.
-        models (list): List of models.
-        im_neg (Tensor): Initial negative image.
-        im (Tensor): Target image.
-        num_steps (int): Number of optimization steps.
-        create_graph (bool): Whether to create a computational graph.
-        idx (int, optional): Index for selecting specific latent vectors.
-    
-    Returns:
-        Tuple: Generated image, intermediate images, gradients, and masks.
-    """
+# parser.add_argument('--dataset', default='blender', type=str, help='Dataset to use (intphys or others or imagenet or cubes)')
+# parser.add_argument('--logdir', default='cachedir', type=str, help='location where log of experiments will be stored')
+# parser.add_argument('--exp', default='default', type=str, help='name of experiments')
+
+# # training
+# parser.add_argument('--resume_iter', default=0, type=int, help='iteration to resume training')
+# parser.add_argument('--batch_size', default=64, type=int, help='size of batch of input to use')
+# parser.add_argument('--num_epoch', default=10000, type=int, help='number of epochs of training to run')
+# parser.add_argument('--lr', default=1e-4, type=float, help='learning rate for training')
+# parser.add_argument('--log_interval', default=10, type=int, help='log outputs every so many batches')
+# parser.add_argument('--save_interval', default=1000, type=int, help='save outputs every so many batches')
+
+# # data
+# parser.add_argument('--data_workers', default=4, type=int, help='Number of different data workers to load data in parallel')
+# parser.add_argument('--ensembles', default=1, type=int, help='use an ensemble of models')
+# parser.add_argument('--vae-beta', type=float, default=0.)
+
+# # EBM specific settings
+
+# # Model specific settings
+# parser.add_argument('--filter_dim', default=64, type=int, help='number of filters to use')
+# parser.add_argument('--components', default=2, type=int, help='number of components to explain an image with')
+# parser.add_argument('--component_weight', action='store_true', help='optimize for weights of the components also')
+# parser.add_argument('--tie_weight', action='store_true', help='tie the weights between seperate models')
+# parser.add_argument('--optimize_mask', action='store_true', help='also optimize a segmentation mask over image')
+# parser.add_argument('--recurrent_model', action='store_true', help='use a recurrent model to infer latents')
+# parser.add_argument('--pos_embed', action='store_true', help='add a positional embedding to model')
+# parser.add_argument('--spatial_feat', action='store_true', help='use spatial latents for object segmentation')
+
+
+# parser.add_argument('--num_steps', default=10, type=int, help='Steps of gradient descent for training')
+# parser.add_argument('--num_visuals', default=16, type=int, help='Number of visuals')
+# parser.add_argument('--num_additional', default=0, type=int, help='Number of additional components to add')
+
+# parser.add_argument('--step_lr', default=500.0, type=float, help='step size of latents')
+
+# parser.add_argument('--latent_dim', default=64, type=int, help='dimension of the latent')
+# parser.add_argument('--sample', action='store_true', help='generate negative samples through Langevin')
+# parser.add_argument('--decoder', action='store_true', help='decoder for model')
+
+# # Distributed training hyperparameters
+# parser.add_argument('--nodes', default=1, type=int, help='number of nodes for training')
+# parser.add_argument('--gpus', default=1, type=int, help='number of gpus per nodes')
+# parser.add_argument('--node_rank', default=0, type=int, help='rank of node')
+
+
+
+def average_gradients(models):
+    size = float(dist.get_world_size())
+
+    for model in models:
+        for name, param in model.named_parameters():
+            if param.grad is None:
+                continue
+
+            dist.all_reduce(param.grad.data, op=dist.reduce_op.SUM)
+            param.grad.data /= size
+
+
+def gen_image(latents, config, models, im_neg, im, num_steps, sample=False, create_graph=True, idx=None, weights=None):
     im_noise = torch.randn_like(im_neg).detach()
+    im_negs_samples = []
+
     im_negs = []
+
     latents = torch.stack(latents, dim=0)
 
-    im_neg.requires_grad_(True)
-    s = im.size()
-    masks = torch.zeros(s[0], config.components, s[-2], s[-1], device=im_neg.device)
-    masks.requires_grad_(True)
+    if config.decoder:
+        masks = []
+        colors = []
+        for i in range(len(latents)):
+            if idx is not None and idx != i:
+                pass
+            else:
+                color, mask = models[i % config.components].forward(None, latents[i])
+                masks.append(mask)
+                colors.append(color)
+        masks = F.softmax(torch.stack(masks, dim=1), dim=1)
+        colors = torch.stack(colors, dim=1)
+        im_neg = torch.sum(masks * colors, dim=1)
+        im_negs = [im_neg]
+        im_grad = torch.zeros_like(im_neg)
+    else:
+        im_neg.requires_grad_(requires_grad=True)
+        s = im.size()
+        masks = torch.zeros(s[0], config.components, s[-2], s[-1]).to(im_neg.device)
+        masks.requires_grad_(requires_grad=True)
 
-    for i in range(num_steps):
-        im_noise.normal_()
-        energy = sum(models[j % len(models)].forward(im_neg, latents[j]) for j in range(len(latents)) if idx is None or idx == j) # using len(models) instead of number of components
-        im_grad, = torch.autograd.grad([energy.sum()], [im_neg], create_graph=False) # TODO: change to true if needed
-        im_neg = torch.clamp(im_neg - config.step_lr * im_grad, 0, 1)
-        im_negs.append(im_neg.detach())
-        im_neg.requires_grad_()
+        for i in range(num_steps):
+            im_noise.normal_()
+
+            energy = 0
+            for j in range(len(latents)):
+                if idx is not None and idx != j:
+                    pass
+                else:
+                    ix = j % config.components
+                    energy = models[j % config.components].forward(im_neg, latents[j]) + energy
+
+            im_grad, = torch.autograd.grad([energy.sum()], [im_neg], create_graph=create_graph)
+
+            im_neg = im_neg - config.step_lr * im_grad
+
+            latents = latents
+
+            im_neg = torch.clamp(im_neg, 0, 1)
+            im_negs.append(im_neg)
+            im_neg = im_neg.detach()
+            im_neg.requires_grad_()
 
     return im_neg, im_negs, im_grad, masks
 
 
-def init_model(config: Config, dataset: BrainDataset):
-    """ Initializes the model and optimizer.
-    Creates multiple LatentEBM models based on config.ensembles.
-    Moves models to the configured device (CPU/GPU).
-    Initializes optimizers (Adam) for each model.
-    Args:
-        config (Config): Configuration object.
-        dataset (BrainDataset): Dataset object.
-    Returns:
-        models (list): List of models.
-        optimizers (list): List of optimizers.
-    """
-    models = [LatentEBM(config, dataset).to(config.device) for _ in range(config.ensembles)]
-    optimizers = [Adam(model.parameters(), lr=config.lr) for model in models]
+def ema_model(models, models_ema, mu=0.999):
+    for (model, model_ema) in zip(models, models_ema):
+        for param, param_ema in zip(model.parameters(), model_ema.parameters()):
+            param_ema.data[:] = mu * param_ema.data + (1 - mu) * param.data
+
+
+def sync_model(models):
+    size = float(dist.get_world_size())
+
+    for model in models:
+        for param in model.parameters():
+            dist.broadcast(param.data, 0)
+
+
+def init_model(config, device, dataset):
+    if config.tie_weight:
+        if config.dataset == "toy":
+            model = ToyEBM(config, dataset).to(device)
+        else:
+            if config.vae_beta:
+                model = BetaVAE_H(z_dim=config.latent_dim, nc=3).to(device)
+                config.ensembles = 1
+                config.components = 1
+            else:
+                if config.dataset == "celebahq_128":
+                    model = LatentEBM128(config, dataset).to(device)
+                else:
+                    model = LatentEBM(config, dataset).to(device)
+
+        models = [model for i in range(config.ensembles)]
+        optimizers = [Adam(model.parameters(), lr=config.lr)]
+    else:
+        models = [LatentEBM(config, dataset).to(device) for i in range(config.ensembles)]
+
+        optimizers = [Adam(model.parameters(), lr=config.lr) for model in models]
+
     return models, optimizers
 
 
-def test(train_dataloader, models, config: Config, step=0): # NOT REFACTORED
-    """Tests the model by generating images using the learned model.
-    The key steps are:
-    1. Set the model to evaluation mode.
-    2. Generate latent embeddings for the input images.
-    3. Generate images using the learned model.
-    4. Compute gradients of the images.
-    5. Save the generated images and gradients.
-    Args:
-        train_dataloader (DataLoader): DataLoader object for training dataset.
-        models (list): List of models to test.
-        config (Config): Configuration object.
-        step (int): Current step of training.
-    Returns:
-        None
-    """
-    [model.eval() for model in models]
-    for im, idx in train_dataloader:
+def test(train_dataloader, models, config, step=0):
+    # if config.cuda:
+    #     dev = torch.device("cuda")
+    # else:
+    dev = torch.device("cpu")
 
-        im = im.to(config.device)
-        idx = idx.to(config.device)
+    replay_buffer = None
+
+    [model.eval() for model in models]
+    logging.info('Testing model')
+    for im, idx in tqdm(train_dataloader):
+
+        im = im.to(dev)
+        idx = idx.to(dev)
         im = im[:config.num_visuals]
         idx = idx[:config.num_visuals]
         batch_size = im.size(0)
@@ -128,7 +221,8 @@ def test(train_dataloader, models, config: Config, step=0): # NOT REFACTORED
 
         im_init = torch.rand_like(im)
         assert len(latents) == config.components
-        im_neg, _, im_grad, mask = gen_image(latents, config, models, im_init, im, create_graph=False)
+        im_neg, _, im_grad, mask = gen_image(latents, config, models, im_init, im, config.num_steps, sample=config.sample, 
+                                       create_graph=False)
         im_neg = im_neg.detach()
         im_components = []
 
@@ -136,18 +230,21 @@ def test(train_dataloader, models, config: Config, step=0): # NOT REFACTORED
             for i, latent in enumerate(latents):
                 im_init = torch.rand_like(im)
                 latents_select = latents[i:i+1]
-                im_component, _, _, _ = gen_image(latents_select, config, models, im_init, im, create_graph=False)
+                im_component, _, _, _ = gen_image(latents_select, config, models, im_init, im, config.num_steps, sample=config.sample,
+                                           create_graph=False)
                 im_components.append(im_component)
 
             im_init = torch.rand_like(im)
             latents_perm = [torch.cat([latent[i:], latent[:i]], dim=0) for i, latent in enumerate(latents)]
-            im_neg_perm, _, im_grad_perm, _ = gen_image(latents_perm, config, models, im_init, im, create_graph=False)
+            im_neg_perm, _, im_grad_perm, _ = gen_image(latents_perm, config, models, im_init, im, config.num_steps, sample=config.sample,
+                                                     create_graph=False)
             im_neg_perm = im_neg_perm.detach()
             im_init = torch.rand_like(im)
             add_latents = list(latents)
             for i in range(config.num_additional):
                 add_latents.append(torch.roll(latents[i], i + 1, 0))
-            im_neg_additional, _, _, _ = gen_image(tuple(add_latents), config, models, im_init, im, create_graph=False)
+            im_neg_additional, _, _, _ = gen_image(tuple(add_latents), config, models, im_init, im, config.num_steps, sample=config.sample,
+                                                     create_graph=False)
 
         im.requires_grad = True
         im_grads = []
@@ -170,6 +267,13 @@ def test(train_dataloader, models, config: Config, step=0): # NOT REFACTORED
         im_grad_min = im_grad_dense.min(dim=3, keepdim=True)[0]
         im_grad_max = im_grad_dense.max(dim=3, keepdim=True)[0] # [4, 3, 1, 1, 1]
 
+        # print(f'im grad shape: {im_grad.shape}') # with clevr: ([16, 2, 3, 64, 64]), with MRI2D: ([16, 2, 3, 228, 198])
+        # im_grad_reshaped = im_grad.view(im_grad.shape[0], im_grad.shape[1]*im_grad.shape[2], im_grad.shape[3], im_grad.shape[4]) # dimension 4 instead of 5 before reducing
+        # x_resized = F.interpolate(im_grad_reshaped, size=(64, 64), mode='bilinear', align_corners=False)
+        # # Reshape back to [16, 2, 3, 64, 64]
+        # im_grad = x_resized.view(16, config.components, 3, 64, 64)
+        # print(f'im grad shape after resizing: {im_grad.shape}')
+
         im_grad = (im_grad - im_grad_min) / (im_grad_max - im_grad_min + 1e-5) # [4, 3, 3, 128, 128]
         im_grad[:, :, :, :1, :] = 1
         im_grad[:, :, :, -1:, :] = 1
@@ -184,6 +288,8 @@ def test(train_dataloader, models, config: Config, step=0): # NOT REFACTORED
 
         im_output = np.concatenate([im_output, im], axis=1)
         im_output = im_output*255
+
+        im_output = im_output.astype(np.uint8)
         imwrite("result/%s/s%08d_grad.png" % (config.exp,step), im_output)
 
         im_neg = im_neg_tensor = im_neg.detach().cpu()
@@ -192,6 +298,8 @@ def test(train_dataloader, models, config: Config, step=0): # NOT REFACTORED
         im_neg = np.clip(im_neg, 0.0, 1.0)
         im_neg = make_grid(im_neg, nrow=int(im_neg.shape[0] / (config.components + 1))).permute(1, 2, 0)
         im_neg = im_neg.numpy()*255
+
+        im_neg = im_neg.astype(np.uint8)
         imwrite("result/%s/s%08d_gen.png" % (config.exp,step), im_neg)
 
         if config.components > 1:
@@ -203,6 +311,7 @@ def test(train_dataloader, models, config: Config, step=0): # NOT REFACTORED
             im_neg_perm = np.clip(im_neg_perm, 0.0, 1.0)
             im_neg_perm = make_grid(im_neg_perm, nrow=int(im_neg_perm.shape[0] / (config.components + 1))).permute(1, 2, 0)
             im_neg_perm = im_neg_perm.numpy()*255
+            im_neg_perm = im_neg_perm.astype(np.uint8)
             imwrite("result/%s/s%08d_gen_perm.png" % (config.exp,step), im_neg_perm)
 
             im_neg_additional = im_neg_additional.detach().cpu()
@@ -210,128 +319,249 @@ def test(train_dataloader, models, config: Config, step=0): # NOT REFACTORED
                 im_components.append(torch.roll(im_components[i], i + 1, 0))
             im_neg_additional = torch.cat([im_neg_additional] + im_components)
             im_neg_additional = np.clip(im_neg_additional, 0.0, 1.0)
-            im_neg_additional = make_grid(im_neg_additional,
+            im_neg_additional = make_grid(im_neg_additional, 
                                 nrow=int(im_neg_additional.shape[0] / (config.components + config.num_additional + 1))).permute(1, 2, 0)
             im_neg_additional = im_neg_additional.numpy()*255
+            im_neg_additional = im_neg_additional.astype(np.uint8)
             imwrite("result/%s/s%08d_gen_add.png" % (config.exp,step), im_neg_additional)
 
-            logging.info('Test at step %d done!' % step)
+            print('test at step %d done!' % step)
         break
 
     [model.train() for model in models]
 
 
-def train(train_dataloader, test_dataloader, models: List[LatentEBM], optimizers: List[Adam], config: Config):
-    """Trains the model using the training dataset.
-    The key steps are:
-    1. Initialize the model and optimizer.
-    2. Iterate over the training dataset.
-    3. Generate negative samples using the learned model.
-    4. Compute the energy of the positive and negative samples.
-    5. Compute the loss and backpropagate the gradients.
-    6. Save the model checkpoint.
+def train(train_dataloader, test_dataloader, logger, models, optimizers, config, logdir, rank_idx):
+    config_path = os.path.join(parent_dir, config.config_path) # TODO. should 
+    config = load_config(config_path)
 
-    Args:
-        train_dataloader (DataLoader): DataLoader object for training dataset.
-        test_dataloader (DataLoader): DataLoader object for testing dataset.
-        models (list): List of models to train.
-        optimizers (list): List of optimizers for each model.
-        config (Config): Configuration object.
-    Returns:
-        None
-    """
-    it = 0 # no var resum_iter in config,
+    it = config.resume_iter
     [optimizer.zero_grad() for optimizer in optimizers]
 
-    for it in tqdm(range(config.num_epoch)):
-        for idx,im in tqdm(enumerate(train_dataloader)):
+    dev = torch.device("cpu")
 
-            im = im.to(config.device)
-            #idx = idx.to(config.device) # you cant do that on an int, such as index, not sure why it would make sense either
-            im = im.unsqueeze(1).repeat(1,3,1,1) # add channel dimension (RGB = 3 channels)
+    # Use LPIPS loss for CelebA-HQ 128x128
+    if config.dataset == "celebahq_128":
+        #import lpips # uncomment for celebahq_128
+        loss_fn_vgg = lpips.LPIPS(net='vgg').cuda()
+
+    for epoch in tqdm(range(config.num_epoch)):
+        for im, idx in train_dataloader:
+
+            im = im.to(dev)
+            idx = idx.to(dev)
+            im_orig = im
+
+            random_idx = random.randint(0, config.ensembles - 1)
+            random_idx = 0
+
             latent = models[0].embed_latent(im)
+
             latents = torch.chunk(latent, config.components, dim=1)
 
             im_neg = torch.rand_like(im)
-            logging.info('Generating image')
-            im_neg, im_negs, im_grad, _ = gen_image(latents, config, models, im_neg, im,num_steps=1) # TODO: choose number of optimization steps
+            im_neg_init = im_neg
+
+            im_neg, im_negs, im_grad, _ = gen_image(latents, config, models, im_neg, im, config.num_steps, config.sample)
 
             im_negs = torch.stack(im_negs, dim=1)
 
+            energy_pos = 0
+            energy_neg = 0
+
             energy_poss = []
             energy_negs = []
-
-            for i in range(config.components): # i % config.ensembles may be wrong
-                energy_poss.append(models[i % config.ensembles].forward(im, latents[i]))
-                energy_negs.append(models[i % config.ensembles].forward(im_neg.detach(), latents[i]))
+            for i in range(config.components):
+                energy_poss.append(models[i].forward(im, latents[i]))
+                energy_negs.append(models[i].forward(im_neg.detach(), latents[i]))
 
             energy_pos = torch.stack(energy_poss, dim=1)
             energy_neg = torch.stack(energy_negs, dim=1)
             ml_loss = (energy_pos - energy_neg).mean()
 
             im_loss = torch.pow(im_negs[:, -1:] - im[:, None], 2).mean()
-            loss = im_loss + 0.1 * ml_loss
+
+            if it < 10000 or config.dataset != "celebahq_128":
+                loss = im_loss
+            else:
+                vgg_loss = loss_fn_vgg(im_negs[:, -1], im).mean()
+                loss = vgg_loss  + 0.1 * im_loss
+
             loss.backward()
-            logging.info(f'Iteration {idx}') # remove if tqdm works
-            # TODO: add warning/logging if loss is nan
-            config.NeptuneLogger.log_metric("im_loss", im_loss, step=idx) # TODO: check it, should not be 0
-            config.NeptuneLogger.log_metric("ml_loss", ml_loss, step=idx)
-            config.NeptuneLogger.log_metric("loss", loss, step=idx)
+            # TODO: normalize loss by batch size?
+            # TODO: how is loss computed? Is it correct?
+            config.NeptuneLogger.log_metric("im_loss", im_loss, step=int(it))
+            config.NeptuneLogger.log_metric("ml_loss", ml_loss, step=int(it))
+            config.NeptuneLogger.log_metric("loss", loss, step=int(it))
+            if config.gpus > 1:
+                average_gradients(models)
 
             [torch.nn.utils.clip_grad_norm_(model.parameters(), 10.0) for model in models]
             [optimizer.step() for optimizer in optimizers]
             [optimizer.zero_grad() for optimizer in optimizers]
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            model_path = osp.join(temp_dir, "model_{}.pth".format(it))
-            # convert to dict
-            ckpt = {'config': config.to_dict()}
+            if it % config.log_interval == 0 and rank_idx == 0:
+                loss = loss.item()
+                energy_pos_mean = energy_pos.mean().item()
+                energy_neg_mean = energy_neg.mean().item()
+                energy_pos_std = energy_pos.std().item()
+                energy_neg_std = energy_neg.std().item()
 
-            for i in range(len(models)):
-                ckpt['model_state_dict_{}'.format(i)] = models[i].state_dict()
+                kvs = {}
+                kvs['loss'] = loss
+                kvs['ml_loss'] = ml_loss.item()
+                kvs['im_loss'] = im_loss.item()
 
-            for i in range(len(optimizers)):
-                ckpt['optimizer_state_dict_{}'.format(i)] = optimizers[i].state_dict()
+                if config.dataset == "celebahq_128" and ('vgg_loss' in kvs):
+                    kvs['vgg_loss'] = vgg_loss.item()
 
-            torch.save(ckpt, model_path)
-            config.NeptuneLogger.log_model(model_path, file_name="model_it{}".format(it))
-            logging.info("Saving model in directory....")
-        logging.info('Now running test...')
+                kvs['energy_pos_mean'] = energy_pos_mean
+                kvs['energy_neg_mean'] = energy_neg_mean
+                kvs['energy_pos_std'] = energy_pos_std
+                kvs['energy_neg_std'] = energy_neg_std
+                kvs['average_im_grad'] = torch.abs(im_grad).max()
 
-        test(test_dataloader, models, config, step=it)
+                string = "Iteration {} ".format(it)
+
+                for k, v in kvs.items():
+                    string += "%s: %.6f  " % (k,v)
+                    logger.add_scalar(k, v, it)
+
+                print(string)
+
+            if it % config.save_interval == 0 and rank_idx == 0:
+                model_path = osp.join(logdir, "model_{}.pth".format(it))
 
 
-def main_single(config: Config):
-    """Main function for training the model.
-    The key steps are:
-    1. Load the dataset.
-    2. Initialize the model and optimizer.
-    3. Create DataLoader objects for training and testing datasets.
-    4. Train the model.
-    5. Test the model.
-    Args:
-        config (Config): Configuration object.
-    Returns:
-        None
-    """
-    dataset = BrainDataset(config).load_data() # BrainDataset(config.data_path)
-    train_size = int(config.train_data_size * len(dataset))
-    test_size = len(dataset) - train_size
-    dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
+                ckpt = {'config': config}
 
-    models, optimizers = init_model(config, dataset)
-    models = [model.train() for model in models]
+                for i in range(len(models)):
+                    ckpt['model_state_dict_{}'.format(i)] = models[i].state_dict()
 
-    train_dataloader = DataLoader(dataset, num_workers=config.data_workers, batch_size=config.batch_size, shuffle=config.shuffle_dataset, pin_memory=False)
-    test_dataloader = DataLoader(test_dataset, num_workers=config.data_workers, batch_size=config.batch_size, shuffle=True, pin_memory=False, drop_last=True)
+                for i in range(len(optimizers)):
+                    ckpt['optimizer_state_dict_{}'.format(i)] = optimizers[i].state_dict()
 
-    train(train_dataloader, test_dataloader, models, optimizers, config)
-    # test(test_dataloader, models, config)
+                torch.save(ckpt, model_path)
+                with tempfile.TemporaryDirectory() as tempdir:
+                    config.NeptuneLogger.log_model(file_path=osp.join(tempdir, "model_{}.pth".format(it)), file_name="model_it{}".format(it))
+                print("Saving model in directory....")
+                print('run test')
+
+                test(test_dataloader, models, config, step=it)
+
+            it += 1
+
+
+
+def main_single(rank, config):
+    """rank is number of gpus"""
+    rank_idx = config.node_rank * config.gpus + rank
+    world_size = config.nodes * config.gpus
+
+
+    if not os.path.exists('result/%s' % config.exp):
+        try:
+            os.makedirs('result/%s' % config.exp)
+        except:
+            pass
+
+    if config.dataset == 'MRI':
+        dataset = BrainDataset(config, train=True)
+        test_dataset = BrainDataset(config, train=False)
+
+    elif config.dataset == "clevr":
+        dataset = Clevr(config)
+        test_dataset = dataset
+
+    print(f'Train dataset has {len(dataset)} samples')
+    print(f'Test dataset has {len(test_dataset)} samples')
+
+    shuffle=True
+    sampler = None
+
+    if world_size > 1:
+        group = dist.init_process_group(backend='nccl', init_method='tcp://localhost:8113', world_size=world_size, rank=rank_idx, group_name="default")
+
+    if torch.cuda.is_available():
+        torch.cuda.set_device(rank)
+    device = torch.device('cpu')
+
+    logdir = osp.join(config.logdir, config.exp)
+    config_OLD = config
+
+    if config.resume_iter != 0:
+        logging.info(f'A pretrained model is loaded since resume_iter = {config.resume_iter}')
+        model_path = osp.join(logdir, "model_{}.pth".format(config.resume_iter))
+
+        checkpoint = torch.load(model_path, map_location=torch.device('cpu'))
+        config = checkpoint['config']
+
+        config.resume_iter = config_OLD.resume_iter
+        config.save_interval = config_OLD.save_interval
+        config.nodes = config_OLD.nodes
+        config.gpus = config_OLD.gpus
+        config.node_rank = config_OLD.node_rank
+        config.train = config_OLD.train
+        config.batch_size = config_OLD.batch_size
+        config.num_visuals = config_OLD.num_visuals
+        config.num_additional = config_OLD.num_additional
+        config.decoder = config_OLD.decoder
+        config.optimize_test = config_OLD.optimize_test
+        config.temporal = config_OLD.temporal
+        config.sim = config_OLD.sim
+        config.exp = config_OLD.exp
+        config.step_lr = config_OLD.step_lr
+        config.num_steps = config_OLD.num_steps
+        config.vae_beta = config_OLD.vae_beta
+
+        models, optimizers  = init_model(config, device, dataset)
+        state_dict = models[0].state_dict()
+
+        for i, (model, optimizer) in enumerate(zip(models, optimizers)):
+            model.load_state_dict(checkpoint['model_state_dict_{}'.format(i)], strict=False)
+            optimizer.load_state_dict(checkpoint['optimizer_state_dict_{}'.format(i)], strict=False)
+
+    else:
+        models, optimizers = init_model(config, device, dataset)
+
+    if config.gpus > 1:
+        sync_model(models)
+
+    # if config.dataset == "multidsprites":
+    #     train_dataloader = MultiDspritesLoader(config.batch_size)
+    #     test_dataloader = MultiDspritesLoader(config.batch_size)
+    # elif config.dataset == "tetris":
+    #     train_dataloader = TetrominoesLoader(config.batch_size)
+    #     test_dataloader = TetrominoesLoader(config.batch_size)
+    else:
+        train_dataloader = DataLoader(dataset, num_workers=config.data_workers, batch_size=config.batch_size, shuffle=shuffle, pin_memory=False)
+        test_dataloader = DataLoader(test_dataset, num_workers=config.data_workers, batch_size=config.num_visuals, shuffle=True, pin_memory=False, drop_last=True)
+
+    print(f'Train dataloader has {len(train_dataloader)} batches')
+    print(f'Test dataloader has {len(test_dataloader)} batches')
+
+    logger = SummaryWriter(logdir)
+    it = config.resume_iter
+
+    print(f'config.train: {config.train}')
+    logging.info(f'config: {config}')
+    if config.train:
+        models = [model.train() for model in models]
+    else:
+        models = [model.eval() for model in models]
+
+    if config.train:
+        train(train_dataloader, test_dataloader, logger, models, optimizers, config, logdir, rank_idx)
+
+    # elif config.optimize_test:
+    #     test_optimize(test_dataloader, models, config, step=config.resume_iter)
+    else:
+        test(test_dataloader, models, config, step=config.resume_iter)
 
 
 def main(config: Config):
     # mp.spawn(main_single, nprocs=FLAGS.gpus, args=(FLAGS,))
-    main_single(config)
+    main_single(0, config)
 
 
 if __name__ == "__main__":
@@ -342,3 +572,4 @@ if __name__ == "__main__":
 
     config = load_config(args.config)
     main(config)
+
