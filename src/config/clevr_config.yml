@@ -1,0 +1,18 @@
+run_name: "Clevr data on our code"
+test_run: true
+batch_size: 12
+data_workers: 0
+shuffle_dataset: true
+num_epoch: 2
+lr: 0.001
+step_lr: 50.0
+components: 4
+ensembles: 5
+data_path: "data/images_clevr/"
+train_data_size: 0.75
+filter_dim: 64
+latent_dim: 64
+pos_embed: false
+recurrent_model: false
+dataset: "SRPBS"
+steps: 10

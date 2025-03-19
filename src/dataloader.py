@@ -5,8 +5,12 @@ from torch.utils.data import Dataset
 from pathlib import Path
 import seaborn as sns
 import logging
-
+import torch.utils.data as data
 from src.config.load_config import Config
+import torch
+import glob
+from skimage.transform import resize as imresize
+from imageio import imread
 
 class BrainDataset(Dataset):
     def __init__(self, config: Config):
@@ -48,6 +52,26 @@ class BrainDataset(Dataset):
         return len(self.data)
     def __getitem__(self, idx: int) -> tuple[np.ndarray, np.ndarray]: return self.data[idx]
 
+
+class Clevr(data.Dataset):
+    def __init__(self, stage=0):
+        #self.path = "/data/vision/billf/scratch/yilundu/dataset/clevr/images_clevr/*.png"
+        self.path = "/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/data/images_clevr/*.png"
+        self.images = sorted(glob(self.path))
+
+    def __len__(self):
+        return len(self.images)
+
+    def __getitem__(self, index):
+        im_path = self.images[index]
+        im = imread(im_path)
+        im = imresize(im, (64, 64))[:, :, :3]
+
+        im = torch.Tensor(im).permute(2, 0, 1)
+        print(f'From dataset.py, using dataset Clevr, index: {index}, shape: {im.shape}')
+
+        return im, index
+    
 if __name__ == "__main__":
     dataset = BrainDataset()
     print(dataset.get_data())
