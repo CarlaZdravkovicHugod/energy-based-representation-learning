@@ -22,3 +22,9 @@ Our Data:
 ```bash
 python train.py --exp=MRI2D --batch_size=12 --gpus=0 --cuda --train --dataset=MRI --step_lr=500.0
 ```
+
+To run clevr code on our train:
+
+```bash
+python src/train.py --config='src/config/clevr_config.yml'
+```
