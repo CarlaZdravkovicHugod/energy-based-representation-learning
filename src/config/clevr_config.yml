@@ -3,7 +3,7 @@ test_run: true
 batch_size: 12
 data_workers: 0
 shuffle_dataset: true
-num_epoch: 100
+num_epoch: 1
 lr: 0.001
 step_lr: 50.0
 components: 4
@@ -22,7 +22,7 @@ log_interval: 10
 save_interval: 100
 gpus: 0
 num_additional: 0
-exp: run_name;clevr data on our code
+exp: clevr_on_our_code
 config_path: 'src/config/clevr_config.yml'
 resume_iter: 0
 node_rank: 0

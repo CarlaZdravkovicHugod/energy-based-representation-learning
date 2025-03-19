@@ -345,7 +345,7 @@ def train(train_dataloader, test_dataloader, logger, models, optimizers, config,
         #import lpips # uncomment for celebahq_128
         loss_fn_vgg = lpips.LPIPS(net='vgg').cuda()
 
-    for epoch in tqdm(range(config.num_epoch)):
+    for it in tqdm(range(config.num_epoch)): # TODO: it instead of epoch
         for im, idx in train_dataloader:
 
             im = im.to(dev)
@@ -433,7 +433,7 @@ def train(train_dataloader, test_dataloader, logger, models, optimizers, config,
                 model_path = osp.join(logdir, "model_{}.pth".format(it))
 
 
-                ckpt = {'config': config}
+                ckpt = {'config': config.to_dict()}
 
                 for i in range(len(models)):
                     ckpt['model_state_dict_{}'.format(i)] = models[i].state_dict()
@@ -441,6 +441,7 @@ def train(train_dataloader, test_dataloader, logger, models, optimizers, config,
                 for i in range(len(optimizers)):
                     ckpt['optimizer_state_dict_{}'.format(i)] = optimizers[i].state_dict()
 
+                logging.info(f'ckpt type: {type(ckpt)}, model_path: {model_path}')
                 torch.save(ckpt, model_path)
                 with tempfile.TemporaryDirectory() as tempdir:
                     config.NeptuneLogger.log_model(file_path=osp.join(tempdir, "model_{}.pth".format(it)), file_name="model_it{}".format(it))
