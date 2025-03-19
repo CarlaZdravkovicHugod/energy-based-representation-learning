@@ -84,20 +84,18 @@ def train(train_dataloader, models, optimizers, config):
 
     dev = torch.device("cpu")
 
-    steps = 100  # TODO
-
     # TODO: Use our own dataloader with implemented random sampler
-    random_sampler = RandomSampler(train_dataloader.dataset, replacement=True, num_samples=steps)
+    random_sampler = RandomSampler(train_dataloader.dataset, replacement=True, num_samples=config.steps)
     random_dataloader = DataLoader(train_dataloader.dataset, batch_size=train_dataloader.batch_size, sampler=random_sampler)
 
-    for it, (im, idx) in enumerate(tqdm(random_dataloader, total=steps)):
+    for it, (im, idx) in enumerate(tqdm(random_dataloader, total=config.steps)):
         im = im.to(dev)
         idx = idx.to(dev)
 
         latent = models[0].embed_latent(im)
         latents = torch.chunk(latent, config.components, dim=1)
         im_neg = torch.rand_like(im)
-        im_neg, im_negs, _, _ = gen_image(latents, config, models, im_neg, im, config.num_steps, config.sample)
+        im_neg, im_negs, _, _ = gen_image(latents, config, models, im_neg, im, config.steps)
         im_negs = torch.stack(im_negs, dim=1)
         im_loss = torch.pow(im_negs[:, -1:] - im[:, None], 2).mean()
         loss = im_loss
@@ -110,7 +108,7 @@ def train(train_dataloader, models, optimizers, config):
         [optimizer.step() for optimizer in optimizers]
         [optimizer.zero_grad() for optimizer in optimizers]
 
-        if it >= steps - 1: break
+        if it >= config.steps - 1: break
 
 
 def main(config: Config):
@@ -131,18 +129,13 @@ def main(config: Config):
     models, optimizers = init_model(config, dataset)
 
     train_dataloader = DataLoader(dataset, num_workers=config.data_workers, batch_size=config.batch_size, shuffle=shuffle, pin_memory=False)
-    test_dataloader = DataLoader(test_dataset, num_workers=config.data_workers, batch_size=config.num_visuals, shuffle=True, pin_memory=False, drop_last=True)
+    test_dataloader = DataLoader(test_dataset, num_workers=config.data_workers, batch_size=config.batch_size, shuffle=True, pin_memory=False, drop_last=True)
 
     print(f'Train dataloader has {len(train_dataloader)} batches')
     print(f'Test dataloader has {len(test_dataloader)} batches')
 
-    print(f'config.train: {config.train}')
     logging.info(f'config: {config}')
-    if config.train:
-        models = [model.train() for model in models]
-    else:
-        models = [model.eval() for model in models]
-
+    models = [model.train() for model in models]
     train(train_dataloader, models, optimizers, config)
 
 
