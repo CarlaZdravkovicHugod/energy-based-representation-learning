@@ -28,3 +28,8 @@ To run clevr code on our train:
 ```bash
 python src/train.py --config='src/config/clevr_config.yml'
 ```
+
+To avoid src module not found error, run the following command:
+```bash
+export PYTHONPATH="."
+```

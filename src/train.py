@@ -37,60 +37,6 @@ import lpips
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s')
 
-# """Parse input arguments"""
-# parser = argparse.ArgumentParser(description='Train EBM model')
-
-# parser.add_argument('--train', action='store_true', help='whether or not to train')
-# parser.add_argument('--optimize_test', action='store_true', help='whether or not to train')
-# parser.add_argument('--cuda', action='store_true', help='whether to use cuda or not')
-# parser.add_argument('--single', action='store_true', help='test overfitting of the dataset')
-
-
-# parser.add_argument('--dataset', default='blender', type=str, help='Dataset to use (intphys or others or imagenet or cubes)')
-# parser.add_argument('--logdir', default='cachedir', type=str, help='location where log of experiments will be stored')
-# parser.add_argument('--exp', default='default', type=str, help='name of experiments')
-
-# # training
-# parser.add_argument('--resume_iter', default=0, type=int, help='iteration to resume training')
-# parser.add_argument('--batch_size', default=64, type=int, help='size of batch of input to use')
-# parser.add_argument('--num_epoch', default=10000, type=int, help='number of epochs of training to run')
-# parser.add_argument('--lr', default=1e-4, type=float, help='learning rate for training')
-# parser.add_argument('--log_interval', default=10, type=int, help='log outputs every so many batches')
-# parser.add_argument('--save_interval', default=1000, type=int, help='save outputs every so many batches')
-
-# # data
-# parser.add_argument('--data_workers', default=4, type=int, help='Number of different data workers to load data in parallel')
-# parser.add_argument('--ensembles', default=1, type=int, help='use an ensemble of models')
-# parser.add_argument('--vae-beta', type=float, default=0.)
-
-# # EBM specific settings
-
-# # Model specific settings
-# parser.add_argument('--filter_dim', default=64, type=int, help='number of filters to use')
-# parser.add_argument('--components', default=2, type=int, help='number of components to explain an image with')
-# parser.add_argument('--component_weight', action='store_true', help='optimize for weights of the components also')
-# parser.add_argument('--tie_weight', action='store_true', help='tie the weights between seperate models')
-# parser.add_argument('--optimize_mask', action='store_true', help='also optimize a segmentation mask over image')
-# parser.add_argument('--recurrent_model', action='store_true', help='use a recurrent model to infer latents')
-# parser.add_argument('--pos_embed', action='store_true', help='add a positional embedding to model')
-# parser.add_argument('--spatial_feat', action='store_true', help='use spatial latents for object segmentation')
-
-
-# parser.add_argument('--num_steps', default=10, type=int, help='Steps of gradient descent for training')
-# parser.add_argument('--num_visuals', default=16, type=int, help='Number of visuals')
-# parser.add_argument('--num_additional', default=0, type=int, help='Number of additional components to add')
-
-# parser.add_argument('--step_lr', default=500.0, type=float, help='step size of latents')
-
-# parser.add_argument('--latent_dim', default=64, type=int, help='dimension of the latent')
-# parser.add_argument('--sample', action='store_true', help='generate negative samples through Langevin')
-# parser.add_argument('--decoder', action='store_true', help='decoder for model')
-
-# # Distributed training hyperparameters
-# parser.add_argument('--nodes', default=1, type=int, help='number of nodes for training')
-# parser.add_argument('--gpus', default=1, type=int, help='number of gpus per nodes')
-# parser.add_argument('--node_rank', default=0, type=int, help='rank of node')
-
 
 
 def average_gradients(models):
@@ -174,27 +120,8 @@ def sync_model(models):
 
 
 def init_model(config, device, dataset):
-    if config.tie_weight:
-        if config.dataset == "toy":
-            model = ToyEBM(config, dataset).to(device)
-        else:
-            if config.vae_beta:
-                model = BetaVAE_H(z_dim=config.latent_dim, nc=3).to(device)
-                config.ensembles = 1
-                config.components = 1
-            else:
-                if config.dataset == "celebahq_128":
-                    model = LatentEBM128(config, dataset).to(device)
-                else:
-                    model = LatentEBM(config, dataset).to(device)
-
-        models = [model for i in range(config.ensembles)]
-        optimizers = [Adam(model.parameters(), lr=config.lr)]
-    else:
-        models = [LatentEBM(config, dataset).to(device) for i in range(config.ensembles)]
-
-        optimizers = [Adam(model.parameters(), lr=config.lr) for model in models]
-
+    models = [LatentEBM(config, dataset).to(config.device) for _ in range(config.ensembles)]
+    optimizers = [Adam(model.parameters(), lr=config.lr) for model in models]
     return models, optimizers
 
 
