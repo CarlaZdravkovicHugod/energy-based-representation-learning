@@ -19,15 +19,14 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logging.info("Importing log this")
 
 
-def gen_image(latents, config, models, im_neg, im, num_steps, sample=False, create_graph=True, idx=None, weights=None):
+def gen_image(latents, config, models, im_neg, im, steps, create_graph=True, idx=None):
     im_noise = torch.randn_like(im_neg).detach()
-    im_negs_samples = []
 
     im_negs = []
 
     latents = torch.stack(latents, dim=0)
 
-    if config.decoder:
+    if config.decoder: # TODO: split genimage into a with and without decoder functiom
         masks = []
         colors = []
         for i in range(len(latents)):
@@ -48,7 +47,7 @@ def gen_image(latents, config, models, im_neg, im, num_steps, sample=False, crea
         masks = torch.zeros(s[0], config.components, s[-2], s[-1]).to(im_neg.device)
         masks.requires_grad_(requires_grad=True)
 
-        for i in range(num_steps):
+        for i in range(steps):
             im_noise.normal_()
 
             energy = 0

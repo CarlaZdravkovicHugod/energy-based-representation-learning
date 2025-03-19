@@ -28,24 +28,13 @@ class Config:
     latent_dim: int # latent dimension
     pos_embed: bool # use positional embedding
     recurrent_model: bool # use a recurrent model to infer the latents
-    dataset: str # dataset to use, SRPBS
-    steps: int # TODO: determine
-    dataset:str
-    num_steps: int
-    num_visuals: int
-    log_interval: int
+    dataset: str # dataset to use
+    steps: int # TODO: determine optimal
+    device_str: str # TODO: remove subscript
+
     save_interval: int
-    gpus: int
-    num_additional: int
-    exp: str
-    config_path: str
-    resume_iter: int
-    node_rank: int
-    nodes: int
     logdir: str
-    train: bool
-    tie_weight: bool
-    sample: bool
+
     decoder: bool
     
     def to_dict(self):
