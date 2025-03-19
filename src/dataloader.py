@@ -54,9 +54,8 @@ class BrainDataset(Dataset):
 
 
 class Clevr(data.Dataset):
-    def __init__(self, stage=0):
-        #self.path = "/data/vision/billf/scratch/yilundu/dataset/clevr/images_clevr/*.png"
-        self.path = "/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/data/images_clevr/*.png"
+    def __init__(self, config: Config, stage=0):
+        self.path = str(Path(__file__).absolute().parent.parent / Path(config.data_path) / "*.png")
         self.images = sorted(glob(self.path))
 
     def __len__(self):
