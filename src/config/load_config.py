@@ -30,11 +30,7 @@ class Config:
     recurrent_model: bool # use a recurrent model to infer the latents
     dataset: str # dataset to use
     steps: int # TODO: determine optimal
-    device_str: str # TODO: remove subscript
-
-    save_interval: int
-    logdir: str
-
+    device: str # TODO: remove subscript
     decoder: bool
     
     def to_dict(self):
@@ -60,7 +56,7 @@ def load_config(config_path: str) -> Config:
 
     return Config(
         **config,
-        device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+        device=torch.device("cuda" if torch.cuda.is_available() else "cpu"), # TODO: in config or here?
         # NeptuneLogger=NeptuneLogger(config["test_run"], description=config["run_name"]),
         NeptuneLogger=NeptuneLogger(test=False, description=config["run_name"])
     )

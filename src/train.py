@@ -55,7 +55,6 @@ def gen_image(latents, config, models, im_neg, im, steps, create_graph=True, idx
                 if idx is not None and idx != j:
                     pass
                 else:
-                    ix = j % config.components
                     energy = models[j % config.components].forward(im_neg, latents[j]) + energy
 
             im_grad, = torch.autograd.grad([energy.sum()], [im_neg], create_graph=create_graph)
@@ -142,7 +141,7 @@ def main(config: Config):
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str, required=False, help="Path to config file", default='src/config/test.yml')
+    parser.add_argument("--config", type=str, required=False, help="Path to config file", default='src/config/test.yml') # src/config/clevr_config.yml
     args = parser.parse_args()
 
     config = load_config(args.config)

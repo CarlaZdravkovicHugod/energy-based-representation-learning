@@ -5,7 +5,7 @@ data_workers: 0
 shuffle_dataset: true
 num_epoch: 1
 lr: 0.001
-step_lr: 50.0
+step_lr: 500.0
 components: 4
 ensembles: 5
 data_path: "data/images_clevr/"
@@ -16,10 +16,9 @@ pos_embed: false
 recurrent_model: false
 dataset: "clevr"
 steps: 10
-device_str: 'cuda'
-
-save_interval: 100
-logdir: 'src/results/'
+# device: 'cpu'
+decoder: false
 
 
-decoder: False
+
+
