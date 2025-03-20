@@ -11,6 +11,7 @@ import torch
 from glob import glob
 from skimage.transform import resize as imresize
 from imageio import imread
+from src.config.load_config import load_config
 
 class BrainDataset(Dataset):
     def __init__(self, config: Config):
@@ -20,7 +21,7 @@ class BrainDataset(Dataset):
         self.path = Path(__file__).absolute().parent.parent / 'data'
         self.data = None
         self.config = config
-        self.test_run = config.test_run
+        self.test_run = True
 
     def get_data(self) -> str: return self.path
 
@@ -53,6 +54,9 @@ class BrainDataset(Dataset):
     def __getitem__(self, idx: int) -> tuple[np.ndarray, np.ndarray]: return self.data[idx]
 
 
+    # Define a function that reads the data from the path and returns the tensors with 3 dimensions as 3,64,64 the same way as Clevr
+
+
 class Clevr(data.Dataset):
     def __init__(self, config: Config, stage=0):
         self.path = str(Path(__file__).absolute().parent.parent / Path(config.data_path) / "*.png")
@@ -70,9 +74,70 @@ class Clevr(data.Dataset):
 
         return im, index
     
+class MRI2D(data.Dataset):
+    def __init__(self, data_dir, transform=None):
+        """
+        Args:
+            data_dir (string): Directory with all the `.npy` files.
+            transform (callable, optional): Optional transform to be applied on a sample.
+        """
+        data_dir = '/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/data'
+        self.transform = transform
+        self.files = sorted(glob(os.path.join(data_dir, '*.npy')))
+
+    def __len__(self):
+        return len(self.files)
+
+    def __getitem__(self, idx):
+        if isinstance(idx, (list, np.ndarray)):
+            idx = idx.tolist()
+
+        npy_path = self.files[idx]
+        sample = np.load(npy_path)
+
+        if self.transform:
+            sample = self.transform(sample)
+
+        # Convert to torch tensor and resize to (3, x, x)
+        sample = torch.Tensor(sample)
+        if sample.dim() == 2:  # If the sample is 2D, expand to 3D
+            sample = sample.unsqueeze(0).repeat(3, 1, 1)
+        elif sample.size(0) == 1:  # If the sample has a single channel, repeat it to have 3 channels
+            sample = sample.repeat(3, 1, 1)
+
+
+        # Reduce sample to size torch.size(3, 64, 64)
+        # sample = sample.view(3, 64, 64)
+
+        # TODO: use bicubar or adaptive pooling and revert changes in train
+        # 1: bicubar
+        import torch.nn.functional as F
+        x_resized = F.interpolate(sample.unsqueeze(0), size=(64, 64), mode='bicubic', align_corners=False)
+        sample = x_resized.squeeze(0)
+
+        # 2: Adaptive pooling:
+        # import torch.nn as nn
+        # pool = nn.AdaptiveAvgPool2d((64, 64))  # Averaging retains more meaningful features
+        # sample = pool(sample)  # Output: [3, 64, 64]
+        
+        
+        #print(f'From dataset.py, using dataset MRI2D, sample: {sample.shape}, index: {idx}')
+        return sample, idx
+
+
 if __name__ == "__main__":
-    dataset = BrainDataset()
+    dataset = BrainDataset('src/config/test.yml')
     print(dataset.get_data())
-    dataset.load_data()
+    data1 = dataset.load_data()
     print('Length of data set:', len(dataset))
-    dataset.visualize(0)
+    #dataset.visualize(0)
+
+    config = load_config("src/config/clevr_config.yml")
+    print(config)
+    d2 = Clevr(config)
+    print(len(d2))
+
+
+    d3 = MRI2D('/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/data/*.npy')
+    print(len(d3))
+    

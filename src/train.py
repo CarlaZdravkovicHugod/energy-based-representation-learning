@@ -8,7 +8,7 @@ import argparse
 import logging
 from tqdm import tqdm
 from src.comet_models import LatentEBM
-from dataloader import Clevr, BrainDataset
+from dataloader import Clevr, BrainDataset, MRI2D
 logging.getLogger("tensorflow").setLevel(logging.ERROR)
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(parent_dir)
@@ -83,41 +83,65 @@ def train(train_dataloader, models, optimizers, config):
 
     dev = torch.device("cpu")
 
-    # TODO: Use our own dataloader with implemented random sampler
-    random_sampler = RandomSampler(train_dataloader.dataset, replacement=True, num_samples=config.steps)
-    random_dataloader = DataLoader(train_dataloader.dataset, batch_size=train_dataloader.batch_size, sampler=random_sampler)
+    it = 0
 
-    for it, (im, idx) in enumerate(tqdm(random_dataloader, total=config.steps)):
-        im = im.to(dev)
-        idx = idx.to(dev)
+    for epoch in tqdm(range(config.num_epoch)):
+        for im, idx in train_dataloader:
 
-        latent = models[0].embed_latent(im)
-        latents = torch.chunk(latent, config.components, dim=1)
-        im_neg = torch.rand_like(im)
-        im_neg, im_negs, _, _ = gen_image(latents, config, models, im_neg, im, config.steps)
-        im_negs = torch.stack(im_negs, dim=1)
-        im_loss = torch.pow(im_negs[:, -1:] - im[:, None], 2).mean()
-        loss = im_loss
+            im = im.to(dev)
+            idx = idx.to(dev)
 
-        loss.backward()
-        config.NeptuneLogger.log_metric("im_loss", im_loss, step=int(it))
-        config.NeptuneLogger.log_metric("loss", loss, step=int(it))
+            latent = models[0].embed_latent(im)
+            latents = torch.chunk(latent, config.components, dim=1)
 
-        [torch.nn.utils.clip_grad_norm_(model.parameters(), 10.0) for model in models]
-        [optimizer.step() for optimizer in optimizers]
-        [optimizer.zero_grad() for optimizer in optimizers]
+            im_neg = torch.rand_like(im)
 
-        if it >= config.steps - 1: break
+            im_neg, im_negs, _, _ = gen_image(latents, config, models, im_neg, im, config.steps)
 
+            im_negs = torch.stack(im_negs, dim=1)
+
+            energy_pos = 0
+            energy_neg = 0
+
+            energy_poss = []
+            energy_negs = []
+            for i in range(config.components):
+                energy_poss.append(models[i].forward(im, latents[i]))
+                energy_negs.append(models[i].forward(im_neg.detach(), latents[i]))
+
+            energy_pos = torch.stack(energy_poss, dim=1)
+            energy_neg = torch.stack(energy_negs, dim=1)
+            ml_loss = (energy_pos - energy_neg).mean()
+
+            im_loss = torch.pow(im_negs[:, -1:] - im[:, None], 2).mean()
+
+            loss = ml_loss
+
+            loss.backward()
+            # TODO: normalize loss by batch size?
+            # TODO: how is loss computed? Is it correct?
+            config.NeptuneLogger.log_metric("im_loss", im_loss, step=int(it))
+            config.NeptuneLogger.log_metric("ml_loss", ml_loss, step=int(it))
+            config.NeptuneLogger.log_metric("loss", loss, step=int(it))
+
+            [torch.nn.utils.clip_grad_norm_(model.parameters(), 10.0) for model in models]
+            [optimizer.step() for optimizer in optimizers]
+            [optimizer.zero_grad() for optimizer in optimizers]
+
+            it += 1
+        logging.info(f'Epoch:{epoch}, loss: {loss.item()}')
+    logging.info("Training complete")
 
 def main(config: Config):
     if config.dataset == 'MRI':
         dataset = BrainDataset(config, train=True)
         test_dataset = BrainDataset(config, train=False)
-
     elif config.dataset == "clevr":
         dataset = Clevr(config)
         test_dataset = dataset
+    elif config.dataset == '2DMRI':
+        dataset = MRI2D(config)
+        test_dataset = MRI2D(config)
 
     print(f'Train dataset has {len(dataset)} samples')
     print(f'Test dataset has {len(test_dataset)} samples')
@@ -141,7 +165,7 @@ def main(config: Config):
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str, required=False, help="Path to config file", default='src/config/test.yml') # src/config/clevr_config.yml
+    parser.add_argument("--config", type=str, required=False, help="Path to config file", default='src/config/2DMRI_config.yml') # src/config/test.yml
     args = parser.parse_args()
 
     config = load_config(args.config)
