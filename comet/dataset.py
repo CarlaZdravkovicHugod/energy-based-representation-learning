@@ -1046,12 +1046,22 @@ class MRI2D(data.Dataset):
 
         npy_path = self.files[idx]
         sample = np.load(npy_path)
+        # TODO: figure out how the data looks before anything is done to it and compare to clever data
+
+        nonzero_mask = sample > 0  
+
+        # Normalize only nonzero values to range [0, 1]
+        img_min = np.min(sample[nonzero_mask]) 
+        img_max = np.max(sample[nonzero_mask])    
+        img_norm = np.zeros_like(sample)  
+        img_norm[nonzero_mask] = (sample[nonzero_mask] - img_min) / (img_max - img_min)
+
 
         if self.transform:
-            sample = self.transform(sample)
+            sample = self.transform(img_norm)
 
         # Convert to torch tensor and resize to (3, x, x)
-        sample = torch.Tensor(sample)
+        sample = torch.Tensor(img_norm)
         if sample.dim() == 2:  # If the sample is 2D, expand to 3D
             sample = sample.unsqueeze(0).repeat(3, 1, 1)
         elif sample.size(0) == 1:  # If the sample has a single channel, repeat it to have 3 channels
@@ -1074,6 +1084,11 @@ class MRI2D(data.Dataset):
         
         
         #print(f'From dataset.py, using dataset MRI2D, sample: {sample.shape}, index: {idx}')
+
+        # TODO: Some kidn of downsampling, Normalize, or maybe subtract mean and divide by std
+        # normalized_sample = normalize(sample)
+
+        
         return sample, idx
 
 if __name__ == "__main__":

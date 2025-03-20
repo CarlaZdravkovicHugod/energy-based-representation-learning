@@ -9,7 +9,8 @@ import logging
 from tqdm import tqdm
 from src.comet_models import LatentEBM
 from dataloader import Clevr, BrainDataset, MRI2D
-logging.getLogger("tensorflow").setLevel(logging.ERROR)
+import threading
+
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(parent_dir)
 from src.config.load_config import load_config, Config
@@ -115,13 +116,13 @@ def train(train_dataloader, models, optimizers, config):
 
             im_loss = torch.pow(im_negs[:, -1:] - im[:, None], 2).mean()
 
-            loss = ml_loss
-
+            loss = im_loss
+            
+            # TODO: consider combining the two losses before backprop
             loss.backward()
-            # TODO: normalize loss by batch size?
             # TODO: how is loss computed? Is it correct?
-            config.NeptuneLogger.log_metric("im_loss", im_loss, step=int(it))
-            config.NeptuneLogger.log_metric("ml_loss", ml_loss, step=int(it))
+            config.NeptuneLogger.log_metric("image_loss_MSE", im_loss, step=int(it))
+            config.NeptuneLogger.log_metric("max_likelihood_loss", ml_loss, step=int(it))
             config.NeptuneLogger.log_metric("loss", loss, step=int(it))
 
             [torch.nn.utils.clip_grad_norm_(model.parameters(), 10.0) for model in models]
@@ -129,6 +130,7 @@ def train(train_dataloader, models, optimizers, config):
             [optimizer.zero_grad() for optimizer in optimizers]
 
             it += 1
+            logging.info(f'Iteration:{it}, loss: {loss}')
         logging.info(f'Epoch:{epoch}, loss: {loss.item()}')
     logging.info("Training complete")
 
@@ -162,6 +164,14 @@ def main(config: Config):
     train(train_dataloader, models, optimizers, config)
 
 
+def listen_for_exit():
+    while True:
+        if input().strip().lower() == 'q':
+            logging.info("Exiting script...")
+            os._exit(0)
+
+
+
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
@@ -169,4 +179,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     config = load_config(args.config)
+
+    exit_listener = threading.Thread(target=listen_for_exit, daemon=True)
+    exit_listener.start()
+
     main(config)

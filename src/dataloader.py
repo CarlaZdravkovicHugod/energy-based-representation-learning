@@ -12,6 +12,7 @@ from glob import glob
 from skimage.transform import resize as imresize
 from imageio import imread
 from src.config.load_config import load_config
+from torch.nn.functional import normalize
 
 class BrainDataset(Dataset):
     def __init__(self, config: Config):
@@ -94,12 +95,22 @@ class MRI2D(data.Dataset):
 
         npy_path = self.files[idx]
         sample = np.load(npy_path)
+        # TODO: figure out how the data looks before anything is done to it and compare to clever data
+
+        nonzero_mask = sample > 0  
+
+        # Normalize only nonzero values to range [0, 1]
+        img_min = np.min(sample[nonzero_mask]) 
+        img_max = np.max(sample[nonzero_mask])    
+        img_norm = np.zeros_like(sample)  
+        img_norm[nonzero_mask] = (sample[nonzero_mask] - img_min) / (img_max - img_min)
+
 
         if self.transform:
-            sample = self.transform(sample)
+            sample = self.transform(img_norm)
 
         # Convert to torch tensor and resize to (3, x, x)
-        sample = torch.Tensor(sample)
+        sample = torch.Tensor(img_norm)
         if sample.dim() == 2:  # If the sample is 2D, expand to 3D
             sample = sample.unsqueeze(0).repeat(3, 1, 1)
         elif sample.size(0) == 1:  # If the sample has a single channel, repeat it to have 3 channels
@@ -122,22 +133,32 @@ class MRI2D(data.Dataset):
         
         
         #print(f'From dataset.py, using dataset MRI2D, sample: {sample.shape}, index: {idx}')
+
+        # TODO: Some kidn of downsampling, Normalize, or maybe subtract mean and divide by std
+        # normalized_sample = normalize(sample)
+
+        
         return sample, idx
 
 
 if __name__ == "__main__":
-    dataset = BrainDataset('src/config/test.yml')
-    print(dataset.get_data())
-    data1 = dataset.load_data()
-    print('Length of data set:', len(dataset))
+    # dataset = BrainDataset('src/config/test.yml')
+    # print(dataset.get_data())
+    # data1 = dataset.load_data()
+    # print('Length of data set:', len(dataset))
     #dataset.visualize(0)
 
-    config = load_config("src/config/clevr_config.yml")
+    config = load_config("src/config/clevr_config.yml") 
+    # clebr jas 11407 files
+    # these number in the tensor or very small 0.7 ish
     print(config)
     d2 = Clevr(config)
     print(len(d2))
 
 
     d3 = MRI2D('/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/data/*.npy')
+    item = d3.__getitem__(0)
+    print(item[0].shape)
     print(len(d3))
-    
+    # this has 2820 files
+    # all the values in the tensors are really large, ranges from -90 to 3000
