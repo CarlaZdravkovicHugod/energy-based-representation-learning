@@ -88,7 +88,7 @@ def train(train_dataloader, models, optimizers, config):
     it = 0
 
     for epoch in tqdm(range(config.num_epoch)):
-        for im, idx in train_dataloader:
+        for im, idx in tqdm(train_dataloader):
 
             im = im.to(dev)
             idx = idx.to(dev)
