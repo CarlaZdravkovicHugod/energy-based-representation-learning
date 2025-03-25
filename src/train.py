@@ -56,6 +56,7 @@ def gen_image(latents, config, models, im_neg, im, steps, create_graph=True, idx
                 if idx is not None and idx != j:
                     pass
                 else:
+                    ix = j % config.components
                     energy = models[j % config.components].forward(im_neg, latents[j]) + energy
 
             im_grad, = torch.autograd.grad([energy.sum()], [im_neg], create_graph=create_graph)
@@ -112,9 +113,9 @@ def train(train_dataloader, models, optimizers, config):
 
             energy_pos = torch.stack(energy_poss, dim=1)
             energy_neg = torch.stack(energy_negs, dim=1)
-            ml_loss = (energy_pos - energy_neg).mean()
+            ml_loss = (energy_pos - energy_neg).mean() # max likelihood loss is the difference between the energy of the positive(real image) and negative samples (generated image)
 
-            im_loss = torch.pow(im_negs[:, -1:] - im[:, None], 2).mean()
+            im_loss = torch.pow(im_negs[:, -1:] - im[:, None], 2).mean() # im loss is MSE between generated image and original image
 
             loss = im_loss
             
@@ -133,6 +134,10 @@ def train(train_dataloader, models, optimizers, config):
             logging.info(f'Iteration:{it}, loss: {loss}')
         logging.info(f'Epoch:{epoch}, loss: {loss.item()}')
     logging.info("Training complete")
+
+
+# TODO: consider including test again, since model is not behaving as expected with clevr data on our code,
+# max likelihood loss is over the roof.
 
 def main(config: Config):
     if config.dataset == 'MRI':
