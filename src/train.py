@@ -88,7 +88,7 @@ def train(train_dataloader, models, optimizers, config):
     else:
         dev = torch.device("cpu")
 
-    for it, (im, idx) in enumerate(train_dataloader):
+    for it, (im, idx) in tqdm(enumerate(train_dataloader), total=config.steps):
         im = im.to(dev)
         idx = idx.to(dev)
 
@@ -103,11 +103,8 @@ def train(train_dataloader, models, optimizers, config):
         config.NeptuneLogger.log_metric("im_loss", im_loss, step=int(it))
         config.NeptuneLogger.log_metric("loss", loss, step=int(it))
             
-        # TODO: consider combining the two losses before backprop
         loss.backward()
-        # TODO: how is loss computed? Is it correct?
         config.NeptuneLogger.log_metric("image_loss_MSE", im_loss, step=int(it))
-        config.NeptuneLogger.log_metric("max_likelihood_loss", ml_loss, step=int(it))
         config.NeptuneLogger.log_metric("loss", loss, step=int(it))
 
         if it % 100 == 0:
