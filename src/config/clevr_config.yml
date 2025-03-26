@@ -1,6 +1,6 @@
 run_name: "Clevr_data_on_our_code" # corresponds to exp
-test_run: true
-batch_size: 12
+test_run: false
+batch_size: 2
 data_workers: 0
 shuffle_dataset: true
 num_epoch: 1
@@ -15,7 +15,7 @@ latent_dim: 64
 pos_embed: false
 recurrent_model: false
 dataset: "clevr"
-steps: 10
+steps: 1000
 # device: 'cpu'
 decoder: false
 

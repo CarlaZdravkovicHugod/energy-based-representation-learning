@@ -198,10 +198,10 @@ def init_model(FLAGS, device, dataset):
 
 
 def test(train_dataloader, models, FLAGS, step=0):
-    # if FLAGS.cuda:
-    #     dev = torch.device("cuda")
-    # else:
-    dev = torch.device("cpu")
+    if torch.cuda.is_available():
+        dev = torch.device("cuda")
+    else:
+        dev = torch.device("cpu")
 
     replay_buffer = None
 

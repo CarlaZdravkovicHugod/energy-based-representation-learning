@@ -15,4 +15,4 @@ latent_dim: 64
 pos_embed: false
 recurrent_model: false
 dataset: "clevr"
-steps: 10 # ORIGINAL: 10
+steps: 1000 # ORIGINAL: 10

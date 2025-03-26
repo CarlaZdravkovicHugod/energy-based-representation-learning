@@ -19,7 +19,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logging.info("Importing log this")
 
 
-def gen_image(latents, config, models, im_neg, im, steps, create_graph=True, idx=None):
+def gen_image(latents, config, models, im_neg, im, steps = 10, create_graph=True, idx=None):
     im_noise = torch.randn_like(im_neg).detach()
 
     im_negs = []
@@ -81,25 +81,23 @@ def train(train_dataloader, models, optimizers, config):
     # TODO: Failing at step 9
     [optimizer.zero_grad() for optimizer in optimizers]
 
-    dev = torch.device("cpu")
+    if torch.cuda.is_available():
+        dev = torch.device("cuda")
+    else:
+        dev = torch.device("cpu")
 
-    # TODO: Use our own dataloader with implemented random sampler
-    random_sampler = RandomSampler(train_dataloader.dataset, replacement=True, num_samples=config.steps)
-    random_dataloader = DataLoader(train_dataloader.dataset, batch_size=train_dataloader.batch_size, sampler=random_sampler)
-
-    for it, (im, idx) in enumerate(tqdm(random_dataloader, total=config.steps)):
+    for it, (im, idx) in enumerate(train_dataloader):
         im = im.to(dev)
         idx = idx.to(dev)
 
         latent = models[0].embed_latent(im)
         latents = torch.chunk(latent, config.components, dim=1)
         im_neg = torch.rand_like(im)
-        im_neg, im_negs, _, _ = gen_image(latents, config, models, im_neg, im, config.steps)
+        im_neg, im_negs, _, _ = gen_image(latents, config, models, im_neg, im)
         im_negs = torch.stack(im_negs, dim=1)
         im_loss = torch.pow(im_negs[:, -1:] - im[:, None], 2).mean()
         loss = im_loss
 
-        loss.backward()
         config.NeptuneLogger.log_metric("im_loss", im_loss, step=int(it))
         config.NeptuneLogger.log_metric("loss", loss, step=int(it))
 
@@ -107,7 +105,11 @@ def train(train_dataloader, models, optimizers, config):
         [optimizer.step() for optimizer in optimizers]
         [optimizer.zero_grad() for optimizer in optimizers]
 
-        if it >= config.steps - 1: break
+        if it % 100 == 0:
+            
+            models_copy = [model.state_dict() for model in models]
+            torch.save(models_copy, f"models.pth")
+            config.NeptuneLogger.log_model(f"models.pth", f"models.pth")
 
 
 def main(config: Config):
@@ -116,18 +118,20 @@ def main(config: Config):
         test_dataset = BrainDataset(config, train=False)
 
     elif config.dataset == "clevr":
-        dataset = Clevr(config)
-        test_dataset = dataset
+        dataset = Clevr(config, train=True)
+        test_dataset = Clevr(config, train=False)
 
     print(f'Train dataset has {len(dataset)} samples')
     print(f'Test dataset has {len(test_dataset)} samples')
 
-    shuffle=True
-
-    device = torch.device('cpu') # TODO: Set device
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
     models, optimizers = init_model(config, dataset)
 
-    train_dataloader = DataLoader(dataset, num_workers=config.data_workers, batch_size=config.batch_size, shuffle=shuffle, pin_memory=False)
+    random_sampler = RandomSampler(dataset, replacement=True, num_samples=config.steps) 
+    train_dataloader = DataLoader(dataset, num_workers=config.data_workers, batch_size=config.batch_size, sampler=random_sampler, pin_memory=False)
     test_dataloader = DataLoader(test_dataset, num_workers=config.data_workers, batch_size=config.batch_size, shuffle=True, pin_memory=False, drop_last=True)
 
     print(f'Train dataloader has {len(train_dataloader)} batches')

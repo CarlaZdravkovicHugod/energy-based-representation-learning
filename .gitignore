@@ -211,3 +211,5 @@ pyrightconfig.json
 # comet/
 paper.pdf
 .neptune/
+.DS_Store
+.energy-venv
