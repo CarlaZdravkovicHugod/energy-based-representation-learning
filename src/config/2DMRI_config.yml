@@ -15,7 +15,7 @@ latent_dim: 64
 pos_embed: false
 recurrent_model: false
 dataset: "2DMRI"
-steps: 120 # will be divided by bacth size
+steps: 12000 # will be divided by bacth size
 # device: 'cpu'
 decoder: false
 

@@ -87,7 +87,7 @@ class MRI2D(data.Dataset):
             data_dir (string): Directory with all the `.npy` files.
             transform (callable, optional): Optional transform to be applied on a sample.
         """
-        data_dir = '/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/data'
+        data_dir = Path(__file__).absolute().parent.parent / 'data'
         self.transform = transform
         self.files = sorted(glob(os.path.join(data_dir, '*.npy')))
 
