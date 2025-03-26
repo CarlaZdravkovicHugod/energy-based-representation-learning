@@ -98,7 +98,7 @@ def train(train_dataloader, models, optimizers, config):
 
             im_neg = torch.rand_like(im)
 
-            im_neg, im_negs, _, _ = gen_image(latents, config, models, im_neg, im, config.steps)
+            im_neg, im_negs, im_grad, masks = gen_image(latents, config, models, im_neg, im, config.steps)
 
             im_negs = torch.stack(im_negs, dim=1)
 
@@ -147,7 +147,7 @@ def main(config: Config):
         dataset = Clevr(config)
         test_dataset = dataset
     elif config.dataset == '2DMRI':
-        dataset = MRI2D(config)
+        dataset = MRI2D(config) # TOOD: test and train cannor be the same
         test_dataset = MRI2D(config)
 
     print(f'Train dataset has {len(dataset)} samples')

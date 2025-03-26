@@ -13,6 +13,7 @@ from skimage.transform import resize as imresize
 from imageio import imread
 from src.config.load_config import load_config
 from torch.nn.functional import normalize
+import torch.nn.functional as F
 
 class BrainDataset(Dataset):
     def __init__(self, config: Config):
@@ -108,34 +109,8 @@ class MRI2D(data.Dataset):
 
         if self.transform:
             sample = self.transform(img_norm)
-
-        # Convert to torch tensor and resize to (3, x, x)
-        sample = torch.Tensor(img_norm)
-        if sample.dim() == 2:  # If the sample is 2D, expand to 3D
-            sample = sample.unsqueeze(0).repeat(3, 1, 1)
-        elif sample.size(0) == 1:  # If the sample has a single channel, repeat it to have 3 channels
-            sample = sample.repeat(3, 1, 1)
-
-
-        # Reduce sample to size torch.size(3, 64, 64)
-        # sample = sample.view(3, 64, 64)
-
-        # TODO: use bicubar or adaptive pooling and revert changes in train
-        # 1: bicubar
-        import torch.nn.functional as F
-        x_resized = F.interpolate(sample.unsqueeze(0), size=(64, 64), mode='bicubic', align_corners=False)
-        sample = x_resized.squeeze(0)
-
-        # 2: Adaptive pooling:
-        # import torch.nn as nn
-        # pool = nn.AdaptiveAvgPool2d((64, 64))  # Averaging retains more meaningful features
-        # sample = pool(sample)  # Output: [3, 64, 64]
-        
-        
-        #print(f'From dataset.py, using dataset MRI2D, sample: {sample.shape}, index: {idx}')
-
-        # TODO: Some kidn of downsampling, Normalize, or maybe subtract mean and divide by std
-        # normalized_sample = normalize(sample)
+            
+        sample = F.pad(torch.tensor(sample), (0, 0, 256-228, 0))
 
         
         return sample, idx

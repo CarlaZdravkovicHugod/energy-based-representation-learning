@@ -10,7 +10,7 @@ components: 4
 ensembles: 5
 data_path: "data/*.npy"
 train_data_size: 0.75
-filter_dim: 64
+filter_dim: 32
 latent_dim: 64
 pos_embed: false
 recurrent_model: false
