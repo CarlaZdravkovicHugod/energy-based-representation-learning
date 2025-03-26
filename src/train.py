@@ -80,7 +80,6 @@ def init_model(config, dataset):
 
 
 def train(train_dataloader, models, optimizers, config):
-    [optimizer.zero_grad() for optimizer in optimizers]
 
     if torch.cuda.is_available():
         dev = torch.device("cuda")
@@ -103,8 +102,10 @@ def train(train_dataloader, models, optimizers, config):
         config.NeptuneLogger.log_metric("loss", loss, step=int(it))
             
         loss.backward()
-        config.NeptuneLogger.log_metric("image_loss_MSE", im_loss, step=int(it))
-        config.NeptuneLogger.log_metric("loss", loss, step=int(it))
+
+        [torch.nn.utils.clip_grad_norm_(model.parameters(), 10.0) for model in models]
+        [optimizer.step() for optimizer in optimizers]
+        [optimizer.zero_grad() for optimizer in optimizers]
 
         if it % 100 == 0:
             
