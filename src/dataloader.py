@@ -100,17 +100,14 @@ class MRI2D(data.Dataset):
 
         nonzero_mask = sample > 0  
 
-        # Normalize only nonzero values to range [0, 1]
-        img_min = np.min(sample[nonzero_mask]) 
-        img_max = np.max(sample[nonzero_mask])    
-        img_norm = np.zeros_like(sample)  
-        img_norm[nonzero_mask] = (sample[nonzero_mask] - img_min) / (img_max - img_min)
-
-
         if self.transform:
+            img_min = np.min(sample[nonzero_mask]) 
+            img_max = np.max(sample[nonzero_mask])    
+            img_norm = np.zeros_like(sample)  
+            img_norm[nonzero_mask] = (sample[nonzero_mask] - img_min) / (img_max - img_min)
             sample = self.transform(img_norm)
             
-        sample = F.pad(torch.tensor(sample), (0, 0, 256-228, 0))
+        sample = F.pad(torch.tensor(sample), (0, 0, 256-sample.shape[0], 0))
 
         
         return sample, idx
