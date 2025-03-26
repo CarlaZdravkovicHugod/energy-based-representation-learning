@@ -136,9 +136,6 @@ def train(train_dataloader, models, optimizers, config):
     logging.info("Training complete")
 
 
-# TODO: consider including test again, since model is not behaving as expected with clevr data on our code,
-# max likelihood loss is over the roof.
-
 def main(config: Config):
     if config.dataset == 'MRI':
         dataset = BrainDataset(config, train=True)
