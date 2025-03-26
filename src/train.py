@@ -20,7 +20,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logging.info("Importing log this")
 
 
-def gen_image(latents, config, models, im_neg, im, steps, create_graph=True, idx=None):
+def gen_image(latents, config, models, im_neg, im, steps = 10, create_graph=True, idx=None):
     im_noise = torch.randn_like(im_neg).detach()
 
     im_negs = []
@@ -83,57 +83,35 @@ def train(train_dataloader, models, optimizers, config):
     # TODO: Failing at step 9
     [optimizer.zero_grad() for optimizer in optimizers]
 
-    dev = torch.device("cpu")
+    if torch.cuda.is_available():
+        dev = torch.device("cuda")
+    else:
+        dev = torch.device("cpu")
 
-    it = 0
+    for it, (im, idx) in tqdm(enumerate(train_dataloader), total=config.steps):
+        im = im.to(dev)
+        idx = idx.to(dev)
 
-    for epoch in tqdm(range(config.num_epoch)):
-        for im, idx in tqdm(train_dataloader):
+        latent = models[0].embed_latent(im)
+        latents = torch.chunk(latent, config.components, dim=1)
+        im_neg = torch.rand_like(im)
+        im_neg, im_negs, _, _ = gen_image(latents, config, models, im_neg, im)
+        im_negs = torch.stack(im_negs, dim=1)
+        im_loss = torch.pow(im_negs[:, -1:] - im[:, None], 2).mean()
+        loss = im_loss
 
-            im = im.to(dev)
-            idx = idx.to(dev)
-
-            latent = models[0].embed_latent(im)
-            latents = torch.chunk(latent, config.components, dim=1)
-
-            im_neg = torch.rand_like(im)
-
-            im_neg, im_negs, im_grad, masks = gen_image(latents, config, models, im_neg, im, config.steps)
-
-            im_negs = torch.stack(im_negs, dim=1)
-
-            energy_pos = 0
-            energy_neg = 0
-
-            energy_poss = []
-            energy_negs = []
-            for i in range(config.components):
-                energy_poss.append(models[i].forward(im, latents[i]))
-                energy_negs.append(models[i].forward(im_neg.detach(), latents[i]))
-
-            energy_pos = torch.stack(energy_poss, dim=1)
-            energy_neg = torch.stack(energy_negs, dim=1)
-            ml_loss = (energy_pos - energy_neg).mean() # max likelihood loss is the difference between the energy of the positive(real image) and negative samples (generated image)
-
-            im_loss = torch.pow(im_negs[:, -1:] - im[:, None], 2).mean() # im loss is MSE between generated image and original image
-
-            loss = im_loss
+        config.NeptuneLogger.log_metric("im_loss", im_loss, step=int(it))
+        config.NeptuneLogger.log_metric("loss", loss, step=int(it))
             
-            # TODO: consider combining the two losses before backprop
-            loss.backward()
-            # TODO: how is loss computed? Is it correct?
-            config.NeptuneLogger.log_metric("image_loss_MSE", im_loss, step=int(it))
-            config.NeptuneLogger.log_metric("max_likelihood_loss", ml_loss, step=int(it))
-            config.NeptuneLogger.log_metric("loss", loss, step=int(it))
+        loss.backward()
+        config.NeptuneLogger.log_metric("image_loss_MSE", im_loss, step=int(it))
+        config.NeptuneLogger.log_metric("loss", loss, step=int(it))
 
-            [torch.nn.utils.clip_grad_norm_(model.parameters(), 10.0) for model in models]
-            [optimizer.step() for optimizer in optimizers]
-            [optimizer.zero_grad() for optimizer in optimizers]
-
-            it += 1
-            logging.info(f'Iteration:{it}, loss: {loss}')
-        logging.info(f'Epoch:{epoch}, loss: {loss.item()}')
-    logging.info("Training complete")
+        if it % 100 == 0:
+            
+            models_copy = [model.state_dict() for model in models]
+            torch.save(models_copy, f"models.pth")
+            config.NeptuneLogger.log_model(f"models.pth", f"models.pth")
 
 
 def main(config: Config):
@@ -141,8 +119,8 @@ def main(config: Config):
         dataset = BrainDataset(config, train=True)
         test_dataset = BrainDataset(config, train=False)
     elif config.dataset == "clevr":
-        dataset = Clevr(config)
-        test_dataset = dataset
+        dataset = Clevr(config, train=True)
+        test_dataset = Clevr(config, train=False)
     elif config.dataset == '2DMRI':
         dataset = MRI2D(config) # TOOD: test and train cannor be the same
         test_dataset = MRI2D(config)
@@ -150,12 +128,14 @@ def main(config: Config):
     print(f'Train dataset has {len(dataset)} samples')
     print(f'Test dataset has {len(test_dataset)} samples')
 
-    shuffle=True
-
-    device = torch.device('cpu') # TODO: Set device
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
     models, optimizers = init_model(config, dataset)
 
-    train_dataloader = DataLoader(dataset, num_workers=config.data_workers, batch_size=config.batch_size, shuffle=shuffle, pin_memory=False)
+    random_sampler = RandomSampler(dataset, replacement=True, num_samples=config.steps) 
+    train_dataloader = DataLoader(dataset, num_workers=config.data_workers, batch_size=config.batch_size, sampler=random_sampler, pin_memory=False)
     test_dataloader = DataLoader(test_dataset, num_workers=config.data_workers, batch_size=config.batch_size, shuffle=True, pin_memory=False, drop_last=True)
 
     print(f'Train dataloader has {len(train_dataloader)} batches')

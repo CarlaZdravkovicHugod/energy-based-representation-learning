@@ -49,20 +49,23 @@ class BrainDataset(Dataset):
         sns.heatmap(X)
         plt.show()
 
-    def __len__(self) -> int:
-        if self.data is None:
-            return 0
-        return len(self.data)
-    def __getitem__(self, idx: int) -> tuple[np.ndarray, np.ndarray]: return self.data[idx]
+    def __len__(self) -> int: return 0 if self.data is None else len(self.data)
+
+    def __getitem__(self, idx: int) -> tuple[np.ndarray, np.ndarray]:
+        assert self.data is not None, "Data is not loaded"
+        rand_idx = np.random.randint(0, len(self.data))
+        return self.data[rand_idx]
 
 
     # Define a function that reads the data from the path and returns the tensors with 3 dimensions as 3,64,64 the same way as Clevr
 
 
 class Clevr(data.Dataset):
-    def __init__(self, config: Config, stage=0):
+    def __init__(self, config: Config, train: bool):
         self.path = str(Path(__file__).absolute().parent.parent / Path(config.data_path) / "*.png")
-        self.images = sorted(glob(self.path))
+        self.all_images = sorted(glob(self.path))
+        self.images = self.all_images[:int(len(self.all_images) * 0.8)] if train else self.all_images[int(len(self.all_images) * 0.8):]
+        self.train = train
 
     def __len__(self):
         return len(self.images)
