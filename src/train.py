@@ -80,7 +80,6 @@ def init_model(config, dataset):
 
 
 def train(train_dataloader, models, optimizers, config):
-    # TODO: Failing at step 9
     [optimizer.zero_grad() for optimizer in optimizers]
 
     if torch.cuda.is_available():

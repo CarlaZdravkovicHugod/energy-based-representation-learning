@@ -14,6 +14,7 @@ from imageio import imread
 from src.config.load_config import load_config
 from torch.nn.functional import normalize
 import torch.nn.functional as F
+import sklearn.preprocessing as skp
 
 class BrainDataset(Dataset):
     def __init__(self, config: Config):
@@ -99,38 +100,15 @@ class MRI2D(data.Dataset):
 
         npy_path = self.files[idx]
         sample = np.load(npy_path)
-        # TODO: figure out how the data looks before anything is done to it and compare to clever data
-
-        nonzero_mask = sample > 0  
-
-        if self.transform:
-            img_min = np.min(sample[nonzero_mask]) 
-            img_max = np.max(sample[nonzero_mask])    
-            img_norm = np.zeros_like(sample)  
-            img_norm[nonzero_mask] = (sample[nonzero_mask] - img_min) / (img_max - img_min)
-            sample = self.transform(img_norm)
-            
+    
+        sample = (sample - sample.min()) / (sample.max() - sample.min())
         sample = F.pad(torch.tensor(sample), (0, 0, 256-sample.shape[0], 0))
-
+        sample = sample.unsqueeze(0) # add channel dimension explicitly
         
         return sample, idx
 
 
 if __name__ == "__main__":
-    # dataset = BrainDataset('src/config/test.yml')
-    # print(dataset.get_data())
-    # data1 = dataset.load_data()
-    # print('Length of data set:', len(dataset))
-    #dataset.visualize(0)
-
-    config = load_config("src/config/clevr_config.yml") 
-    # clebr jas 11407 files
-    # these number in the tensor or very small 0.7 ish
-    print(config)
-    d2 = Clevr(config)
-    print(len(d2))
-
-
     d3 = MRI2D('/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/data/*.npy')
     item = d3.__getitem__(0)
     print(item[0].shape)
