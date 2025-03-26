@@ -76,10 +76,11 @@ def gen_image(latents, config, models, im_neg, im, steps = 10, create_graph=True
 def init_model(config, dataset):
     models = [LatentEBM(config, dataset).to(config.device) for _ in range(config.ensembles)]
     optimizers = [Adam(model.parameters(), lr=config.lr) for model in models]
-    return models, optimizers
+    schedulers = [torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=50) for optimizer in optimizers]
+    return models, optimizers, schedulers
 
 
-def train(train_dataloader, models, optimizers, config):
+def train(train_dataloader, models, optimizers, schedulers, config):
 
     if torch.cuda.is_available():
         dev = torch.device("cuda")
@@ -107,6 +108,8 @@ def train(train_dataloader, models, optimizers, config):
         [optimizer.step() for optimizer in optimizers]
         [optimizer.zero_grad() for optimizer in optimizers]
 
+        [scheduler.step(loss) for scheduler in schedulers]
+
         if it % 100 == 0:
             
             models_copy = [model.state_dict() for model in models]
@@ -132,7 +135,7 @@ def main(config: Config):
         device = torch.device("cuda")
     else:
         device = torch.device("cpu")
-    models, optimizers = init_model(config, dataset)
+    models, optimizers, schedulers = init_model(config, dataset)
 
     random_sampler = RandomSampler(dataset, replacement=True, num_samples=config.steps) 
     train_dataloader = DataLoader(dataset, num_workers=config.data_workers, batch_size=config.batch_size, sampler=random_sampler, pin_memory=False)
@@ -143,7 +146,7 @@ def main(config: Config):
 
     logging.info(f'config: {config}')
     models = [model.train() for model in models]
-    train(train_dataloader, models, optimizers, config)
+    train(train_dataloader, models, optimizers, schedulers, config)
 
 
 def listen_for_exit():
