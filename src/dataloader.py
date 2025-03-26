@@ -11,6 +11,9 @@ import torch
 from glob import glob
 from skimage.transform import resize as imresize
 from imageio import imread
+from src.config.load_config import load_config
+from torch.nn.functional import normalize
+import torch.nn.functional as F
 
 class BrainDataset(Dataset):
     def __init__(self, config: Config):
@@ -20,7 +23,7 @@ class BrainDataset(Dataset):
         self.path = Path(__file__).absolute().parent.parent / 'data'
         self.data = None
         self.config = config
-        self.test_run = config.test_run
+        self.test_run = True
 
     def get_data(self) -> str: return self.path
 
@@ -54,6 +57,9 @@ class BrainDataset(Dataset):
         return self.data[rand_idx]
 
 
+    # Define a function that reads the data from the path and returns the tensors with 3 dimensions as 3,64,64 the same way as Clevr
+
+
 class Clevr(data.Dataset):
     def __init__(self, config: Config, train: bool):
         self.path = str(Path(__file__).absolute().parent.parent / Path(config.data_path) / "*.png")
@@ -73,9 +79,61 @@ class Clevr(data.Dataset):
 
         return im, index
     
+class MRI2D(data.Dataset):
+    def __init__(self, data_dir, transform=None):
+        """
+        Args:
+            data_dir (string): Directory with all the `.npy` files.
+            transform (callable, optional): Optional transform to be applied on a sample.
+        """
+        data_dir = '/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/data'
+        self.transform = transform
+        self.files = sorted(glob(os.path.join(data_dir, '*.npy')))
+
+    def __len__(self):
+        return len(self.files)
+
+    def __getitem__(self, idx):
+        if isinstance(idx, (list, np.ndarray)):
+            idx = idx.tolist()
+
+        npy_path = self.files[idx]
+        sample = np.load(npy_path)
+        # TODO: figure out how the data looks before anything is done to it and compare to clever data
+
+        nonzero_mask = sample > 0  
+
+        if self.transform:
+            img_min = np.min(sample[nonzero_mask]) 
+            img_max = np.max(sample[nonzero_mask])    
+            img_norm = np.zeros_like(sample)  
+            img_norm[nonzero_mask] = (sample[nonzero_mask] - img_min) / (img_max - img_min)
+            sample = self.transform(img_norm)
+            
+        sample = F.pad(torch.tensor(sample), (0, 0, 256-sample.shape[0], 0))
+
+        
+        return sample, idx
+
+
 if __name__ == "__main__":
-    dataset = BrainDataset()
-    print(dataset.get_data())
-    dataset.load_data()
-    print('Length of data set:', len(dataset))
-    dataset.visualize(0)
+    # dataset = BrainDataset('src/config/test.yml')
+    # print(dataset.get_data())
+    # data1 = dataset.load_data()
+    # print('Length of data set:', len(dataset))
+    #dataset.visualize(0)
+
+    config = load_config("src/config/clevr_config.yml") 
+    # clebr jas 11407 files
+    # these number in the tensor or very small 0.7 ish
+    print(config)
+    d2 = Clevr(config)
+    print(len(d2))
+
+
+    d3 = MRI2D('/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/data/*.npy')
+    item = d3.__getitem__(0)
+    print(item[0].shape)
+    print(len(d3))
+    # this has 2820 files
+    # all the values in the tensors are really large, ranges from -90 to 3000

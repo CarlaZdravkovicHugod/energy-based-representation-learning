@@ -4,6 +4,7 @@ import torch
 from easydict import EasyDict
 from src.downsample import Downsample
 import numpy as np
+import logging
 
 
 def swish(x):
@@ -440,7 +441,7 @@ class LatentEBM(nn.Module):
             self.conv1 = nn.Conv2d(3, filter_dim // 2, kernel_size=3, stride=1, padding=1, bias=True)
             self.conv1_embed = nn.Conv2d(2, filter_dim // 2, kernel_size=3, stride=1, padding=1, bias=True)
         else:
-            self.conv1 = nn.Conv2d(3, filter_dim, kernel_size=3, stride=1, padding=1, bias=True)
+            self.conv1 = nn.Conv2d(12, filter_dim, kernel_size=3, stride=1, padding=1, bias=True)
 
         self.avg_pool = nn.AvgPool2d(3, stride=2, padding=1)
 
@@ -462,8 +463,8 @@ class LatentEBM(nn.Module):
         self.latent_map = nn.Linear(latent_dim, filter_dim * 8)
         self.energy_map = nn.Linear(filter_dim * 2, 1)
 
-        self.embed_conv1 = nn.Conv2d(3, filter_dim, kernel_size=3, stride=1, padding=1)
-        self.embed_layer1 = CondResBlockNoLatent(filters=filter_dim, rescale=False, downsample=True)
+        self.embed_conv1 = nn.Conv2d(12, filter_dim, kernel_size=3, padding=1) # TODO: get channels from imshape,  MRI scans have 12 channels because of the 3D thing
+        self.embed_layer1 = CondResBlockNoLatent(filters=filter_dim, rescale=False, downsample=True) # TODO: downsample?
         self.embed_layer2 = CondResBlockNoLatent(filters=filter_dim, rescale=False, downsample=True)
         self.embed_layer3 = CondResBlockNoLatent(filters=filter_dim, rescale=False, downsample=True)
 
@@ -491,7 +492,7 @@ class LatentEBM(nn.Module):
             else:
                 self.pos_embedding = nn.Parameter(torch.zeros(16, filter_dim))
         else:
-            self.embed_fc1 = nn.Linear(filter_dim, filter_dim)
+            self.embed_fc1 = nn.Linear(filter_dim, filter_dim) # TODO: out_shape
             self.embed_fc2 = nn.Linear(filter_dim, latent_dim_expand)
 
         self.init_grid()
@@ -542,10 +543,13 @@ class LatentEBM(nn.Module):
             s = output.size()
             output = output.view(s[0], -1)
         else:
-            x = x.mean(dim=2).mean(dim=2)
+            if x.dim() == 4:
+                x = x.mean(dim=2).mean(dim=2)  # For 4D tensors
+            elif x.dim() == 3:
+                x = x.mean(dim=2)  # For 3D tensors
 
-            x = x.view(x.size(0), -1)
-            output = self.embed_fc1(x)
+            x = x.view(x.size(0), -1) # shape of x should be 64x64
+            output = self.embed_fc1(x) 
             x = F.relu(self.embed_fc1(x))
             output = self.embed_fc2(x)
 

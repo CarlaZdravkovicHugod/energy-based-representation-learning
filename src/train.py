@@ -8,8 +8,9 @@ import argparse
 import logging
 from tqdm import tqdm
 from src.comet_models import LatentEBM
-from dataloader import Clevr, BrainDataset
-logging.getLogger("tensorflow").setLevel(logging.ERROR)
+from dataloader import Clevr, BrainDataset, MRI2D
+import threading
+
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(parent_dir)
 from src.config.load_config import load_config, Config
@@ -55,6 +56,7 @@ def gen_image(latents, config, models, im_neg, im, steps = 10, create_graph=True
                 if idx is not None and idx != j:
                     pass
                 else:
+                    ix = j % config.components
                     energy = models[j % config.components].forward(im_neg, latents[j]) + energy
 
             im_grad, = torch.autograd.grad([energy.sum()], [im_neg], create_graph=create_graph)
@@ -100,10 +102,13 @@ def train(train_dataloader, models, optimizers, config):
 
         config.NeptuneLogger.log_metric("im_loss", im_loss, step=int(it))
         config.NeptuneLogger.log_metric("loss", loss, step=int(it))
-
-        [torch.nn.utils.clip_grad_norm_(model.parameters(), 10.0) for model in models]
-        [optimizer.step() for optimizer in optimizers]
-        [optimizer.zero_grad() for optimizer in optimizers]
+            
+        # TODO: consider combining the two losses before backprop
+        loss.backward()
+        # TODO: how is loss computed? Is it correct?
+        config.NeptuneLogger.log_metric("image_loss_MSE", im_loss, step=int(it))
+        config.NeptuneLogger.log_metric("max_likelihood_loss", ml_loss, step=int(it))
+        config.NeptuneLogger.log_metric("loss", loss, step=int(it))
 
         if it % 100 == 0:
             
@@ -116,10 +121,12 @@ def main(config: Config):
     if config.dataset == 'MRI':
         dataset = BrainDataset(config, train=True)
         test_dataset = BrainDataset(config, train=False)
-
     elif config.dataset == "clevr":
         dataset = Clevr(config, train=True)
         test_dataset = Clevr(config, train=False)
+    elif config.dataset == '2DMRI':
+        dataset = MRI2D(config) # TOOD: test and train cannor be the same
+        test_dataset = MRI2D(config)
 
     print(f'Train dataset has {len(dataset)} samples')
     print(f'Test dataset has {len(test_dataset)} samples')
@@ -142,11 +149,23 @@ def main(config: Config):
     train(train_dataloader, models, optimizers, config)
 
 
+def listen_for_exit():
+    while True:
+        if input().strip().lower() == 'q':
+            logging.info("Exiting script...")
+            os._exit(0)
+
+
+
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str, required=False, help="Path to config file", default='src/config/test.yml') # src/config/clevr_config.yml
+    parser.add_argument("--config", type=str, required=False, help="Path to config file", default='src/config/2DMRI_config.yml') # src/config/test.yml
     args = parser.parse_args()
 
     config = load_config(args.config)
+
+    exit_listener = threading.Thread(target=listen_for_exit, daemon=True)
+    exit_listener.start()
+
     main(config)
