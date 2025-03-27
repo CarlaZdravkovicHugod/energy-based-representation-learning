@@ -21,6 +21,7 @@ logging.info("Importing log this")
 
 
 def gen_image(latents, config, models, im_neg, im, steps = 10, create_graph=True, idx=None):
+    # TODO: the samples were used through langevin, where did they go?
     im_noise = torch.randn_like(im_neg).detach()
 
     im_negs = []
