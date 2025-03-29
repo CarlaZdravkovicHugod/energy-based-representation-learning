@@ -22,5 +22,6 @@
 # your training script here, e.g.
 # activate environment ...
 source .venv/bin/activate
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 PYTHONPATH="." python src/train.py --config="src/config/2DMRI_config.yml"
 # /zhome/7a/d/187526/dev/energy-based-representation-learning/src/train.py
