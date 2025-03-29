@@ -4,7 +4,7 @@
 #BSUB -q gpua100
 
 # job name
-#BSUB -J job_name_goes_here
+#BSUB -J 2DMRI_Data
 
 # 4 cpus, 1 machine, 1 gpu, 24 hours (the max)
 #BSUB -n 4
@@ -24,4 +24,3 @@
 source .venv/bin/activate
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 PYTHONPATH="." python src/train.py --config="src/config/2DMRI_config.yml"
-# /zhome/7a/d/187526/dev/energy-based-representation-learning/src/train.py
