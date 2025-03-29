@@ -75,7 +75,7 @@ def gen_image(latents, config, models, im_neg, im, steps = 10, create_graph=True
 
 
 def init_model(config, dataset):
-    models = [LatentEBM(config, dataset).to(config.device) for _ in range(config.ensembles)]
+    models = [LatentEBM(config, dataset).to(config.device) for _ in range(config.ensembles)] # TODO? enseblemes should be == components
     optimizers = [Adam(model.parameters(), lr=config.lr) for model in models]
     schedulers = [torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=50) for optimizer in optimizers]
     return models, optimizers, schedulers
@@ -170,3 +170,7 @@ if __name__ == "__main__":
     exit_listener.start()
 
     main(config)
+
+    # TODO: consider gradient checkpointing to reduce memory usage,
+    # TODO: or use AMP
+    # *TODO: oprimal batch size??
