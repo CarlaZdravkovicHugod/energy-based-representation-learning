@@ -20,8 +20,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logging.info("Importing log this")
 
 
-def gen_image(latents, config, models, im_neg, im, steps = 10, create_graph=True, idx=None):
+def gen_image(latents, config, models, im_neg, im, steps = 20, create_graph=True, idx=None):
     # TODO: the samples were used through langevin, where did they go?
+    # TODO: optimal number of steps?
     im_noise = torch.randn_like(im_neg).detach()
 
     im_negs = []
