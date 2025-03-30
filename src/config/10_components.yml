@@ -1,4 +1,4 @@
-run_name: "2DMRI_data_on_our_code" # corresponds to exp
+run_name: "MRI with 10 components&ensembles, batches=8000/8" # corresponds to exp
 test_run: false
 batch_size: 8
 data_workers: 0
