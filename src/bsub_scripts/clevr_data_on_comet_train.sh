@@ -4,7 +4,7 @@
 #BSUB -q gpua100
 
 # job name
-#BSUB -J job_name_goes_here
+#BSUB -J clevr_data_on_comet
 
 # 4 cpus, 1 machine, 1 gpu, 24 hours (the max)
 #BSUB -n 4
