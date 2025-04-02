@@ -167,7 +167,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     config = load_config(args.config)
-    neptune_logger = NeptuneLogger(test=False, description=config["run_name"])
+    neptune_logger = NeptuneLogger(test=False, description=config.run_name)
 
     exit_listener = threading.Thread(target=listen_for_exit, daemon=True)
     exit_listener.start()
