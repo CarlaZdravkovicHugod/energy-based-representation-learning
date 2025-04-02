@@ -21,6 +21,8 @@ logging.info("Importing log this")
 
 
 def gen_image(latents, config, models, im_neg, im, steps = 10, create_graph=True, idx=None):
+    # TODO: the samples were used through langevin, where did they go?
+    # TODO: optimal number of steps?
     im_noise = torch.randn_like(im_neg).detach()
 
     im_negs = []
@@ -74,7 +76,7 @@ def gen_image(latents, config, models, im_neg, im, steps = 10, create_graph=True
 
 
 def init_model(config, dataset):
-    models = [LatentEBM(config, dataset).to(config.device) for _ in range(config.ensembles)]
+    models = [LatentEBM(config, dataset).to(config.device) for _ in range(config.ensembles)] # TODO? enseblemes should be == components
     optimizers = [Adam(model.parameters(), lr=config.lr) for model in models]
     schedulers = [torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=50) for optimizer in optimizers]
     return models, optimizers, schedulers
@@ -160,7 +162,7 @@ def listen_for_exit():
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str, required=False, help="Path to config file", default='src/config/2DMRI_config.yml') # src/config/test.yml
+    parser.add_argument("--config", type=str, required=False, help="Path to config file", default='src/config/clevr_config.yml') # src/config/test.yml
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -169,3 +171,7 @@ if __name__ == "__main__":
     exit_listener.start()
 
     main(config)
+
+    # TODO: consider gradient checkpointing to reduce memory usage,
+    # TODO: or use AMP
+    # *TODO: oprimal batch size??

@@ -32,6 +32,7 @@ class Config:
     steps: int # TODO: determine optimal
     device: str # TODO: remove subscript
     decoder: bool
+    channels: int # number of channels in the input image
     
     def to_dict(self):
         copy = self.__dict__.copy()

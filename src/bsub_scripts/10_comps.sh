@@ -4,7 +4,7 @@
 #BSUB -q gpua100
 
 # job name
-#BSUB -J 2DMRI_Data
+#BSUB -J 2DMRI_Data_10_components
 
 # 4 cpus, 1 machine, 1 gpu, 24 hours (the max)
 #BSUB -n 4
@@ -23,4 +23,4 @@
 # activate environment ...
 source .venv/bin/activate
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-PYTHONPATH="." python src/train.py --config="src/config/2DMRI_config.yml"
+PYTHONPATH="." python src/train.py --config="src/config/10_components.yml"

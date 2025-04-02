@@ -33,3 +33,19 @@ To avoid src module not found error, run the following command:
 ```bash
 export PYTHONPATH="."
 ```
+
+If you wish to train a new model, you can connect to the HPC (if you have access) and run the following command:
+
+```bash
+bsub path/to/bsubs/scrupts
+```
+
+When you have queued the job, there a few good-to-know commands:
+
+```bash
+bjobs 
+bkill job_id
+bqueues
+```
+
+First one is to see the status of your queued jobs, second is to kill a specific job, last is to see the general queue on the HPC. 
