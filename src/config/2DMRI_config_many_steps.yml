@@ -18,6 +18,7 @@ dataset: "2DMRI"
 steps: 80000 # will be divided by bacth size
 # device: 'cpu'
 decoder: false
+channels: 1
 
 
 

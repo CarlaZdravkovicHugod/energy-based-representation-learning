@@ -162,7 +162,7 @@ def listen_for_exit():
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str, required=False, help="Path to config file", default='src/config/2DMRI_config.yml') # src/config/test.yml
+    parser.add_argument("--config", type=str, required=False, help="Path to config file", default='src/config/clevr_config.yml') # src/config/test.yml
     args = parser.parse_args()
 
     config = load_config(args.config)

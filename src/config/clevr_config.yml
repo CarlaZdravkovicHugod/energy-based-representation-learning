@@ -17,3 +17,4 @@ recurrent_model: false
 dataset: "clevr"
 steps: 640000
 decoder: false
+channels: 3

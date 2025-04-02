@@ -19,6 +19,7 @@ steps: 20
 # device: 'cpu'
 decoder: false
 model: VAE
+channels: 1
 
 
 
