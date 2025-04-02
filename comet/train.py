@@ -64,7 +64,7 @@ parser = argparse.ArgumentParser(description='Train EBM model')
 # parser.add_argument('--spatial_feat', action='store_true', help='use spatial latents for object segmentation')
 
 
-# parser.add_argument('--num_steps', default=10, type=int, help='Steps of gradient descent for training')
+# parser.add_argument('--steps', default=10, type=int, help='Steps of gradient descent for training')
 # parser.add_argument('--num_visuals', default=16, type=int, help='Number of visuals')
 # parser.add_argument('--num_additional', default=0, type=int, help='Number of additional components to add')
 
@@ -93,7 +93,7 @@ def average_gradients(models):
             param.grad.data /= size
 
 
-def gen_image(latents, FLAGS, models, im_neg, im, num_steps, sample=False, create_graph=True, idx=None, weights=None):
+def gen_image(latents, FLAGS, models, im_neg, im, steps, sample=False, create_graph=True, idx=None, weights=None):
     im_noise = torch.randn_like(im_neg).detach()
 
     im_negs = []
@@ -121,7 +121,7 @@ def gen_image(latents, FLAGS, models, im_neg, im, num_steps, sample=False, creat
         masks = torch.zeros(s[0], FLAGS.components, s[-2], s[-1]).to(im_neg.device)
         masks.requires_grad_(requires_grad=True)
 
-        for i in range(num_steps):
+        for i in range(steps):
             im_noise.normal_()
 
             energy = 0
@@ -196,11 +196,11 @@ def test(train_dataloader, models, FLAGS, step=0):
     [model.eval() for model in models]
     logging.info('Testing model')
     for im, idx in tqdm(train_dataloader):
-
+        num_visuals = 16
         im = im.to(dev)
         idx = idx.to(dev)
-        im = im[:FLAGS.num_visuals]
-        idx = idx[:FLAGS.num_visuals]
+        im = im[:num_visuals]
+        idx = idx[:num_visuals]
         batch_size = im.size(0)
         latent = models[0].embed_latent(im)
 
@@ -208,7 +208,7 @@ def test(train_dataloader, models, FLAGS, step=0):
 
         im_init = torch.rand_like(im)
         assert len(latents) == FLAGS.components
-        im_neg, _, im_grad, mask = gen_image(latents, FLAGS, models, im_init, im, FLAGS.num_steps, sample=FLAGS.sample, 
+        im_neg, _, im_grad, mask = gen_image(latents, FLAGS, models, im_init, im, FLAGS.steps, 
                                        create_graph=False)
         im_neg = im_neg.detach()
         im_components = []
@@ -217,20 +217,20 @@ def test(train_dataloader, models, FLAGS, step=0):
             for i, latent in enumerate(latents):
                 im_init = torch.rand_like(im)
                 latents_select = latents[i:i+1]
-                im_component, _, _, _ = gen_image(latents_select, FLAGS, models, im_init, im, FLAGS.num_steps, sample=FLAGS.sample,
+                im_component, _, _, _ = gen_image(latents_select, FLAGS, models, im_init, im, FLAGS.steps,
                                            create_graph=False)
                 im_components.append(im_component)
 
             im_init = torch.rand_like(im)
             latents_perm = [torch.cat([latent[i:], latent[:i]], dim=0) for i, latent in enumerate(latents)]
-            im_neg_perm, _, im_grad_perm, _ = gen_image(latents_perm, FLAGS, models, im_init, im, FLAGS.num_steps, sample=FLAGS.sample,
+            im_neg_perm, _, im_grad_perm, _ = gen_image(latents_perm, FLAGS, models, im_init, im, FLAGS.steps,
                                                      create_graph=False)
             im_neg_perm = im_neg_perm.detach()
             im_init = torch.rand_like(im)
             add_latents = list(latents)
-            for i in range(FLAGS.num_additional):
-                add_latents.append(torch.roll(latents[i], i + 1, 0))
-            im_neg_additional, _, _, _ = gen_image(tuple(add_latents), FLAGS, models, im_init, im, FLAGS.num_steps, sample=FLAGS.sample,
+            # for i in range(FLAGS.num_additional):
+            #     add_latents.append(torch.roll(latents[i], i + 1, 0))
+            im_neg_additional, _, _, _ = gen_image(tuple(add_latents), FLAGS, models, im_init, im, FLAGS.steps,
                                                      create_graph=False)
 
         im.requires_grad = True
@@ -277,7 +277,7 @@ def test(train_dataloader, models, FLAGS, step=0):
         im_output = im_output*255
 
         im_output = im_output.astype(np.uint8)
-        imwrite("result/%s/s%08d_grad.png" % (FLAGS.exp,step), im_output)
+        imwrite("result/%s/s%08d_grad.png" % (FLAGS.run_name,step), im_output)
 
         im_neg = im_neg_tensor = im_neg.detach().cpu()
         im_components = [im_components[i].detach().cpu() for i in range(len(im_components))]
@@ -287,7 +287,7 @@ def test(train_dataloader, models, FLAGS, step=0):
         im_neg = im_neg.numpy()*255
 
         im_neg = im_neg.astype(np.uint8)
-        imwrite("result/%s/s%08d_gen.png" % (FLAGS.exp,step), im_neg)
+        imwrite("result/%s/s%08d_gen.png" % (FLAGS.run_name,step), im_neg)
 
         if FLAGS.components > 1:
             im_neg_perm = im_neg_perm.detach().cpu()
@@ -299,18 +299,18 @@ def test(train_dataloader, models, FLAGS, step=0):
             im_neg_perm = make_grid(im_neg_perm, nrow=int(im_neg_perm.shape[0] / (FLAGS.components + 1))).permute(1, 2, 0)
             im_neg_perm = im_neg_perm.numpy()*255
             im_neg_perm = im_neg_perm.astype(np.uint8)
-            imwrite("result/%s/s%08d_gen_perm.png" % (FLAGS.exp,step), im_neg_perm)
+            imwrite("result/%s/s%08d_gen_perm.png" % (FLAGS.run_name,step), im_neg_perm)
 
             im_neg_additional = im_neg_additional.detach().cpu()
-            for i in range(FLAGS.num_additional):
-                im_components.append(torch.roll(im_components[i], i + 1, 0))
+            # for i in range(FLAGS.num_additional):
+            #     im_components.append(torch.roll(im_components[i], i + 1, 0))
             im_neg_additional = torch.cat([im_neg_additional] + im_components)
             im_neg_additional = np.clip(im_neg_additional, 0.0, 1.0)
             im_neg_additional = make_grid(im_neg_additional, 
-                                nrow=int(im_neg_additional.shape[0] / (FLAGS.components + FLAGS.num_additional + 1))).permute(1, 2, 0)
+                                nrow=int(im_neg_additional.shape[0] / (FLAGS.components +  1))).permute(1, 2, 0)
             im_neg_additional = im_neg_additional.numpy()*255
             im_neg_additional = im_neg_additional.astype(np.uint8)
-            imwrite("result/%s/s%08d_gen_add.png" % (FLAGS.exp,step), im_neg_additional)
+            imwrite("result/%s/s%08d_gen_add.png" % (FLAGS.run_name,step), im_neg_additional)
 
             print('test at step %d done!' % step)
         break
@@ -414,11 +414,11 @@ def train(train_dataloader, test_dataloader, models, optimizers, FLAGS, logdir, 
 
                 print(string)
 
-            if FLAGS.num_epochs % 100 == 0:
+            if FLAGS.num_epoch % 100 == 0:
                 model_path = osp.join(logdir, "model_{}.pth".format(it))
 
 
-                ckpt = {'FLAGS': FLAGS}
+                ckpt = {'FLAGS': FLAGS.to_dict()}
 
                 for i in range(len(models)):
                     ckpt['model_state_dict_{}'.format(i)] = models[i].state_dict()
@@ -529,7 +529,7 @@ def main_single(rank, FLAGS):
     #     FLAGS.sim = FLAGS_OLD.sim
     #     FLAGS.exp = FLAGS_OLD.exp
     #     FLAGS.step_lr = FLAGS_OLD.step_lr
-    #     FLAGS.num_steps = FLAGS_OLD.num_steps
+    #     FLAGS.steps = FLAGS_OLD.steps
     #     FLAGS.vae_beta = FLAGS_OLD.vae_beta
 
     #     models, optimizers  = init_model(FLAGS, device, dataset)
@@ -572,10 +572,10 @@ def main_single(rank, FLAGS):
     if FLAGS.test_run == False:
         train(train_dataloader, test_dataloader, models, optimizers, FLAGS, logdir, rank_idx)
 
-    elif FLAGS.optimize_test:
-        test_optimize(test_dataloader, models, FLAGS, step=FLAGS.resume_iter)
+    # elif FLAGS.optimize_test:
+    #     test_optimize(test_dataloader, models, FLAGS, step=FLAGS.resume_iter)
     else:
-        test(test_dataloader, models, FLAGS, step=FLAGS.resume_iter)
+        test(test_dataloader, models, FLAGS, step=0)
 
 
 def main():

@@ -328,7 +328,6 @@ class Clevr(data.Dataset):
         im = imresize(im, (64, 64))[:, :, :3]
 
         im = torch.Tensor(im).permute(2, 0, 1)
-        print(f'From dataset.py, using dataset Clevr, index: {index}, shape: {im.shape}')
 
         return im, index
 
