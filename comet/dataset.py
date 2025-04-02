@@ -315,7 +315,8 @@ class NvidiaDisentangle(data.Dataset):
 class Clevr(data.Dataset):
     def __init__(self, stage=0):
         #self.path = "/data/vision/billf/scratch/yilundu/dataset/clevr/images_clevr/*.png"
-        self.path = "/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/comet/images_clevr/*.png"
+        parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        self.path = os.path.join(parent_dir, 'src/config/comet_config.yml')
         self.images = sorted(glob(self.path))
 
     def __len__(self):

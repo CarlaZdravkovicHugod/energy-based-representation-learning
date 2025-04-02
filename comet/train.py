@@ -5,7 +5,7 @@ import torch.nn.functional as F
 import torch.multiprocessing as mp
 import torch.distributed as dist
 from torch.optim import Adam
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, RandomSampler
 from torchvision.utils import make_grid
 import numpy as np
 from imageio import imwrite
@@ -460,7 +460,8 @@ def main_single(rank, FLAGS):
         dataset = Nvidia(FLAGS)
         test_dataset = dataset
     elif FLAGS.dataset == "clevr":
-        dataset = Clevr(FLAGS)
+        print(FLAGS.dataset)
+        dataset = Clevr(FLAGS, train=True)
         test_dataset = dataset
     elif FLAGS.dataset == "clevr_lighting":
         dataset = ClevrLighting(FLAGS)
@@ -551,7 +552,9 @@ def main_single(rank, FLAGS):
     #     train_dataloader = TetrominoesLoader(FLAGS.batch_size)
     #     test_dataloader = TetrominoesLoader(FLAGS.batch_size)
     # else:
-    train_dataloader = DataLoader(dataset, num_workers=FLAGS.data_workers, batch_size=FLAGS.batch_size, shuffle=shuffle, pin_memory=False)
+    print(FLAGS.steps * FLAGS.batch_size)
+    random_sampler = RandomSampler(dataset, replacement=True, num_samples=FLAGS.steps * FLAGS.batch_size) 
+    train_dataloader = DataLoader(dataset, num_workers=FLAGS.data_workers, batch_size=FLAGS.batch_size, sampler=random_sampler, pin_memory=False)
     test_dataloader = DataLoader(test_dataset, num_workers=FLAGS.data_workers, batch_size=FLAGS.batch_size, shuffle=True, pin_memory=False, drop_last=True)
 
     print(f'Train dataloader has {len(train_dataloader)} batches')
@@ -576,7 +579,8 @@ def main_single(rank, FLAGS):
 
 
 def main():
-    FLAGS = load_config('/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/src/config/comet_config.yml')
+    config_path = os.path.join(parent_dir, 'src/config/comet_config.yml')
+    FLAGS = load_config(config_path)
     FLAGS.ensembles = FLAGS.components
     FLAGS.tie_weight = True
     FLAGS.sample = True
