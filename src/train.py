@@ -105,7 +105,6 @@ def train(train_dataloader, models, optimizers, schedulers, config):
         im_loss = torch.pow(im_negs[:, -1:] - im[:, None], 2).mean()
         loss = im_loss
 
-        config.NeptuneLogger.log_metric("im_loss", im_loss, step=int(it))
         config.NeptuneLogger.log_metric("loss", loss, step=int(it))
         config.NeptuneLogger.log_metric("scheduler_lr", schedulers[0].get_last_lr()[0], step=int(it))
             
