@@ -9,7 +9,8 @@ import logging
 from tqdm import tqdm
 from torch.utils.data import DataLoader, RandomSampler
 
-
+# TODO: when ok model from comets train script on clevr data, then test the reconsiuctrion of clevr data
+# so we can compare with our own model's performance.
 
 
 def gen_image(latents, FLAGS, models, im_neg, num_steps, idx=None):
