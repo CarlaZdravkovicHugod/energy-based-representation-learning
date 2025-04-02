@@ -103,6 +103,7 @@ def train(train_dataloader, models, optimizers, schedulers, config):
 
         config.NeptuneLogger.log_metric("im_loss", im_loss, step=int(it))
         config.NeptuneLogger.log_metric("loss", loss, step=int(it))
+        config.NeptuneLogger.log_metric("scheduler_lr", schedulers[0].get_last_lr()[0], step=int(it))
             
         loss.backward()
 
