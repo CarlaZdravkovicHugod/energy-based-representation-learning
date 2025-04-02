@@ -414,7 +414,7 @@ def train(train_dataloader, test_dataloader, models, optimizers, FLAGS, logdir, 
 
                 print(string)
 
-            if FLAGS.epochs % 10 == 0:
+            if FLAGS.num_epochs % 100 == 0:
                 model_path = osp.join(logdir, "model_{}.pth".format(it))
 
 
