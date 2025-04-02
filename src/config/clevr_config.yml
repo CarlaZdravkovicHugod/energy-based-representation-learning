@@ -1,6 +1,6 @@
 run_name: "Clevr data on our code"
 test_run: false
-batch_size: 64
+batch_size: 8
 data_workers: 0
 shuffle_dataset: true
 num_epoch: 2
@@ -15,6 +15,6 @@ latent_dim: 64
 pos_embed: false
 recurrent_model: false
 dataset: "clevr"
-steps: 640000
+steps: 100000
 decoder: false
 channels: 3

@@ -1,4 +1,4 @@
-run_name: "MRI data on comet"
+run_name: "clevr data on comet"
 test_run: False
 batch_size: 12
 data_workers: 0
@@ -15,4 +15,6 @@ latent_dim: 64
 pos_embed: false
 recurrent_model: false
 dataset: "clevr"
-steps: 1000 # ORIGINAL: 10
+steps: 10 # ORIGINAL: 10
+decoder: false
+channels: 3

@@ -4,31 +4,27 @@ import numpy as np
 import json
 import torchvision.transforms.functional as TF
 import random
-
-from PIL import Image
 import torch.utils.data as data
 import torch
 import cv2
-from torchvision import transforms
-import glob
-import logging
 
-try:
-    import multi_dsprites
-    import tetrominoes
-    import tensorflow as tf
-    tf.compat.v1.disable_v2_behavior()
 
-except:
-    pass
-tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
+# try:
+#     import multi_dsprites
+#     import tetrominoes
+#     import tensorflow as tf
+#     tf.compat.v1.disable_v2_behavior()
+#     print('in dataset after tf')
+
+# except:
+#     print('in dataset after tf except')
+#     pass
+
 from glob import glob
 
 from imageio import imread
 from skimage.transform import resize as imresize
 
-import warnings
-warnings.filterwarnings("ignore")
 class GaussianBlur(object):
 
     def __init__(self, min=0.1, max=2.0, kernel_size=9):
@@ -518,197 +514,197 @@ class DSprites(data.Dataset):
         # Dataset is always randomly generated
         return 100000
 
-class MultiDspritesLoader():
+# class MultiDspritesLoader():
 
-    def __init__(self, batchsize):
-        tf_records_path = 'dataset/multi_dsprites_colored_on_colored.tfrecords'
-        batch_size = batchsize
+#     def __init__(self, batchsize):
+#         tf_records_path = 'dataset/multi_dsprites_colored_on_colored.tfrecords'
+#         batch_size = batchsize
 
-        dataset = multi_dsprites.dataset(tf_records_path, 'colored_on_colored')
-        batched_dataset = dataset.batch(batch_size)  # optional batching
-        iterator = batched_dataset.make_one_shot_iterator()
-        self.data = iterator.get_next()
-        self.sess = tf.InteractiveSession()
+#         dataset = multi_dsprites.dataset(tf_records_path, 'colored_on_colored')
+#         batched_dataset = dataset.batch(batch_size)  # optional batching
+#         iterator = batched_dataset.make_one_shot_iterator()
+#         self.data = iterator.get_next()
+#         self.sess = tf.InteractiveSession()
 
-    def __iter__(self):
-        return self
+#     def __iter__(self):
+#         return self
 
-    def __next__(self):
-        d = self.sess.run(self.data)
-        img = d['image']
-        img = img.transpose((0, 3, 1, 2))
-        img = img / 255.
-        img = torch.Tensor(img)
+#     def __next__(self):
+#         d = self.sess.run(self.data)
+#         img = d['image']
+#         img = img.transpose((0, 3, 1, 2))
+#         img = img / 255.
+#         img = torch.Tensor(img)
 
-        return img, torch.ones(1)
+#         return img, torch.ones(1)
 
-    def __len__(self):
-        return 1e6
-
-
-class TetrominoesLoader():
-
-    def __init__(self, batchsize):
-        # tf_records_path = '/home/yilundu/my_repos/dataset/tetrominoes_train.tfrecords'
-        tf_records_path = '/home/gridsan/yilundu/my_files/ebm_video/dataset/tetrominoes_train.tfrecords'
-        batch_size = batchsize
-
-        dataset = tetrominoes.dataset(tf_records_path)
-        batched_dataset = dataset.batch(batch_size)  # optional batching
-        iterator = batched_dataset.make_one_shot_iterator()
-        self.data = iterator.get_next()
-        config = tf.ConfigProto(
-                device_count = {'GPU': 0}
-            )
-        self.sess = tf.InteractiveSession(config=config)
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        d = self.sess.run(self.data)
-        img = d['image']
-        img = img.transpose((0, 3, 1, 2))
-        img = img / 255.
-        img = torch.Tensor(img).contiguous()
-
-        return img, torch.ones(1)
-
-    def __len__(self):
-        return 1e6
-
-class TFImagenetLoader(data.Dataset):
-
-    def __init__(self, split, batchsize, idx, num_workers, return_label=False):
-        IMAGENET_NUM_TRAIN_IMAGES = 1281167
-        IMAGENET_NUM_VAL_IMAGES = 50000
-        self.return_label = return_label
-
-        if split == "train":
-            im_length = IMAGENET_NUM_TRAIN_IMAGES
-        else:
-            im_length = IMAGENET_NUM_VAL_IMAGES
-
-        self.curr_sample = 0
-
-        index_path = osp.join('/data/vision/billf/scratch/yilundu/imagenet', 'index.json')
-        with open(index_path) as f:
-            metadata = json.load(f)
-            counts = metadata['record_counts']
-
-        if split == 'train':
-            files = list(sorted([x for x in counts.keys() if x.startswith('train')]))
-        else:
-            files = list(sorted([x for x in counts.keys() if x.startswith('validation')]))
-
-        files = [osp.join('/data/vision/billf/scratch/yilundu/imagenet', x) for x in files]
-        preprocess_function = ImagenetPreprocessor(224, dtype=tf.float32, train=False).parse_and_preprocess
-
-        ds = tf.data.TFRecordDataset.from_generator(lambda: files, output_types=tf.string)
-        ds = ds.apply(tf.data.TFRecordDataset)
-        ds = ds.take(im_length)
-        # ds = ds.prefetch(buffer_size=4)
-        ds = ds.apply(tf.contrib.data.shuffle_and_repeat(buffer_size=10000))
-        ds = ds.apply(batching.map_and_batch(map_func=preprocess_function, batch_size=batchsize, num_parallel_batches=4))
-        ds = ds.prefetch(buffer_size=2)
-
-        ds_iterator = ds.make_initializable_iterator()
-        labels, images = ds_iterator.get_next()
-        self.images = tf.clip_by_value(images / 256 + tf.random_uniform(tf.shape(images), 0, 1. / 256), 0.0, 1.0)
-        self.labels = labels
-
-        config = tf.ConfigProto(device_count = {'GPU': 0})
-        sess = tf.Session(config=config)
-        sess.run(ds_iterator.initializer)
-
-        # self.im_length = im_length // batchsize
-        self.im_length = im_length
-
-        self.sess = sess
-
-    def __next__(self):
-        self.curr_sample += 1
-
-        sess = self.sess
-
-        label, im = sess.run([self.labels, self.images])
-        label = label.squeeze() - 1
-        im = torch.from_numpy(im).permute((0, 3, 1, 2))
-        label = torch.LongTensor(label)
-
-        if self.return_label:
-            return im, label
-        else:
-            return im[:, None, :]
-
-    def __iter__(self):
-        return self
-
-    def __len__(self):
-        return self.im_length
+#     def __len__(self):
+#         return 1e6
 
 
-class TFTaskAdaptation(data.Dataset):
+# class TetrominoesLoader():
 
-    def __init__(self, split, batchsize):
-        data_params = {
-            # "dataset": "data." + "clevr(task='count_all')",
-            "dataset": "data." + "svhn()",
-            "dataset_train_split_name": "trainval",
-            "dataset_eval_split_name": "test",
-            "shuffle_buffer_size": 10000,
-            "prefetch": True,
-            "train_examples": None,
-            "batch_size": batchsize,
-            "batch_size_eval": batchsize,
-            "data_for_eval": split == "test",
-            "data_dir": "/private/home/yilundu/tensorflow_datasets",
-            "input_range": [0.0, 1.0]
-        }
-        ds = build_data_pipeline(data_params, split)
-        ds = ds({'batch_size': batchsize})
-        # ds = ds.apply(tf.contrib.data.shuffle_and_repeat(buffer_size=10000))
-        # ds = ds.apply(batching.map_and_batch(map_func=preprocess_function, batch_size=FLAGS.batch_size, num_parallel_batches=4))
-        # ds = ds.prefetch(buffer_size=2)
+#     def __init__(self, batchsize):
+#         # tf_records_path = '/home/yilundu/my_repos/dataset/tetrominoes_train.tfrecords'
+#         tf_records_path = '/home/gridsan/yilundu/my_files/ebm_video/dataset/tetrominoes_train.tfrecords'
+#         batch_size = batchsize
 
-        ds_iterator = tf.data.make_initializable_iterator(ds)
-        outputs = ds_iterator.get_next()
-        image, label = outputs['image'], outputs['label']
-        self.images = image
-        self.labels = label
-        self.split = split
+#         dataset = tetrominoes.dataset(tf_records_path)
+#         batched_dataset = dataset.batch(batch_size)  # optional batching
+#         iterator = batched_dataset.make_one_shot_iterator()
+#         self.data = iterator.get_next()
+#         config = tf.ConfigProto(
+#                 device_count = {'GPU': 0}
+#             )
+#         self.sess = tf.InteractiveSession(config=config)
 
-        config = tf.ConfigProto(device_count = {'GPU': 0})
-        sess = tf.Session(config=config)
-        sess.run(ds_iterator.initializer)
+#     def __iter__(self):
+#         return self
 
-        self.im_length = 1000
-        self.curr_sample = 0
+#     def __next__(self):
+#         d = self.sess.run(self.data)
+#         img = d['image']
+#         img = img.transpose((0, 3, 1, 2))
+#         img = img / 255.
+#         img = torch.Tensor(img).contiguous()
 
-        self.sess = sess
+#         return img, torch.ones(1)
 
-    def __next__(self):
-        self.curr_sample += 1
+#     def __len__(self):
+#         return 1e6
 
-        sess = self.sess
-        label, im = sess.run([self.labels, self.images])
+# class TFImagenetLoader(data.Dataset):
 
-        if self.split == "train":
-            im = im[:, 0].transpose((0, 1, 4, 2, 3))
-        else:
-            im = im.transpose((0, 3, 1, 2))
+#     def __init__(self, split, batchsize, idx, num_workers, return_label=False):
+#         IMAGENET_NUM_TRAIN_IMAGES = 1281167
+#         IMAGENET_NUM_VAL_IMAGES = 50000
+#         self.return_label = return_label
 
-        if self.curr_sample == 1000:
-            self.curr_sample = 0
-            raise StopIteration
+#         if split == "train":
+#             im_length = IMAGENET_NUM_TRAIN_IMAGES
+#         else:
+#             im_length = IMAGENET_NUM_VAL_IMAGES
 
-        return [torch.Tensor(im[:]), torch.Tensor(label).long()]
+#         self.curr_sample = 0
 
-    def __iter__(self):
-        return self
+#         index_path = osp.join('/data/vision/billf/scratch/yilundu/imagenet', 'index.json')
+#         with open(index_path) as f:
+#             metadata = json.load(f)
+#             counts = metadata['record_counts']
 
-    def __len__(self):
-        return self.im_length
+#         if split == 'train':
+#             files = list(sorted([x for x in counts.keys() if x.startswith('train')]))
+#         else:
+#             files = list(sorted([x for x in counts.keys() if x.startswith('validation')]))
+
+#         files = [osp.join('/data/vision/billf/scratch/yilundu/imagenet', x) for x in files]
+#         preprocess_function = ImagenetPreprocessor(224, dtype=tf.float32, train=False).parse_and_preprocess
+
+#         ds = tf.data.TFRecordDataset.from_generator(lambda: files, output_types=tf.string)
+#         ds = ds.apply(tf.data.TFRecordDataset)
+#         ds = ds.take(im_length)
+#         # ds = ds.prefetch(buffer_size=4)
+#         ds = ds.apply(tf.contrib.data.shuffle_and_repeat(buffer_size=10000))
+#         ds = ds.apply(batching.map_and_batch(map_func=preprocess_function, batch_size=batchsize, num_parallel_batches=4))
+#         ds = ds.prefetch(buffer_size=2)
+
+#         ds_iterator = ds.make_initializable_iterator()
+#         labels, images = ds_iterator.get_next()
+#         self.images = tf.clip_by_value(images / 256 + tf.random_uniform(tf.shape(images), 0, 1. / 256), 0.0, 1.0)
+#         self.labels = labels
+
+#         config = tf.ConfigProto(device_count = {'GPU': 0})
+#         sess = tf.Session(config=config)
+#         sess.run(ds_iterator.initializer)
+
+#         # self.im_length = im_length // batchsize
+#         self.im_length = im_length
+
+#         self.sess = sess
+
+#     def __next__(self):
+#         self.curr_sample += 1
+
+#         sess = self.sess
+
+#         label, im = sess.run([self.labels, self.images])
+#         label = label.squeeze() - 1
+#         im = torch.from_numpy(im).permute((0, 3, 1, 2))
+#         label = torch.LongTensor(label)
+
+#         if self.return_label:
+#             return im, label
+#         else:
+#             return im[:, None, :]
+
+#     def __iter__(self):
+#         return self
+
+#     def __len__(self):
+#         return self.im_length
+
+
+# class TFTaskAdaptation(data.Dataset):
+
+#     def __init__(self, split, batchsize):
+#         data_params = {
+#             # "dataset": "data." + "clevr(task='count_all')",
+#             "dataset": "data." + "svhn()",
+#             "dataset_train_split_name": "trainval",
+#             "dataset_eval_split_name": "test",
+#             "shuffle_buffer_size": 10000,
+#             "prefetch": True,
+#             "train_examples": None,
+#             "batch_size": batchsize,
+#             "batch_size_eval": batchsize,
+#             "data_for_eval": split == "test",
+#             "data_dir": "/private/home/yilundu/tensorflow_datasets",
+#             "input_range": [0.0, 1.0]
+#         }
+#         ds = build_data_pipeline(data_params, split)
+#         ds = ds({'batch_size': batchsize})
+#         # ds = ds.apply(tf.contrib.data.shuffle_and_repeat(buffer_size=10000))
+#         # ds = ds.apply(batching.map_and_batch(map_func=preprocess_function, batch_size=FLAGS.batch_size, num_parallel_batches=4))
+#         # ds = ds.prefetch(buffer_size=2)
+
+#         ds_iterator = tf.data.make_initializable_iterator(ds)
+#         outputs = ds_iterator.get_next()
+#         image, label = outputs['image'], outputs['label']
+#         self.images = image
+#         self.labels = label
+#         self.split = split
+
+#         config = tf.ConfigProto(device_count = {'GPU': 0})
+#         sess = tf.Session(config=config)
+#         sess.run(ds_iterator.initializer)
+
+#         self.im_length = 1000
+#         self.curr_sample = 0
+
+#         self.sess = sess
+
+#     def __next__(self):
+#         self.curr_sample += 1
+
+#         sess = self.sess
+#         label, im = sess.run([self.labels, self.images])
+
+#         if self.split == "train":
+#             im = im[:, 0].transpose((0, 1, 4, 2, 3))
+#         else:
+#             im = im.transpose((0, 3, 1, 2))
+
+#         if self.curr_sample == 1000:
+#             self.curr_sample = 0
+#             raise StopIteration
+
+#         return [torch.Tensor(im[:]), torch.Tensor(label).long()]
+
+#     def __iter__(self):
+#         return self
+
+#     def __len__(self):
+#         return self.im_length
 
 class CubesColor(data.Dataset):
     """Constructs a dataset with N circles, N is the number of components set by flags"""

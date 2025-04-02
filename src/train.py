@@ -90,7 +90,7 @@ def train(train_dataloader, models, optimizers, schedulers, config):
         dev = torch.device("cpu")
 
     for it, (im, idx) in tqdm(enumerate(train_dataloader), total=config.steps):
-        im = im.to(dev)
+        im = im.to(dev) # 8, 3, 64, 64
         idx = idx.to(dev)
 
         latent = models[0].embed_latent(im)
