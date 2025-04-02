@@ -461,7 +461,7 @@ def main_single(rank, FLAGS):
         test_dataset = dataset
     elif FLAGS.dataset == "clevr":
         print(FLAGS.dataset)
-        dataset = Clevr(FLAGS, train=True)
+        dataset = Clevr(FLAGS)
         test_dataset = dataset
     elif FLAGS.dataset == "clevr_lighting":
         dataset = ClevrLighting(FLAGS)
