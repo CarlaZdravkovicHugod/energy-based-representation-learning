@@ -325,7 +325,10 @@ def train(train_dataloader, test_dataloader, models, optimizers, FLAGS, logdir, 
     it = 0
     [optimizer.zero_grad() for optimizer in optimizers]
 
-    dev = torch.device("cpu")
+    if torch.cuda.is_available():
+        dev = torch.device("cuda")
+    else:
+        dev = torch.device("cpu")
 
     # Use LPIPS loss for CelebA-HQ 128x128
     # if FLAGS.dataset == "celebahq_128":
