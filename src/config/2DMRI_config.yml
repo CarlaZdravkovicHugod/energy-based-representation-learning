@@ -1,6 +1,6 @@
 run_name: "2DMRI_data_on_our_code" # corresponds to exp
 test_run: false
-batch_size: 12
+batch_size: 8
 data_workers: 0
 shuffle_dataset: true
 num_epoch: 10
@@ -15,8 +15,7 @@ latent_dim: 64
 pos_embed: false
 recurrent_model: false
 dataset: "2DMRI"
-steps: 12000 # will be divided by bacth size
-# device: 'cpu'
+steps: 10000
 decoder: false
 channels: 1
 

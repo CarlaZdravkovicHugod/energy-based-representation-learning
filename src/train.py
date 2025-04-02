@@ -10,6 +10,7 @@ from tqdm import tqdm
 from src.comet_models import LatentEBM
 from dataloader import Clevr, BrainDataset, MRI2D
 import threading
+from dataclasses import asdict
 
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(parent_dir)
@@ -78,11 +79,14 @@ def gen_image(latents, config, models, im_neg, im, steps = 10, create_graph=True
 def init_model(config, dataset):
     models = [LatentEBM(config, dataset).to(config.device) for _ in range(config.ensembles)] # TODO? enseblemes should be == components
     optimizers = [Adam(model.parameters(), lr=config.lr) for model in models]
-    schedulers = [torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=50) for optimizer in optimizers]
+    schedulers = [torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=200) for optimizer in optimizers]
     return models, optimizers, schedulers
 
 
 def train(train_dataloader, models, optimizers, schedulers, config):
+
+    config_dict = asdict(config)
+    config.NeptuneLogger.log_config_dict(config_dict)
 
     if torch.cuda.is_available():
         dev = torch.device("cuda")
