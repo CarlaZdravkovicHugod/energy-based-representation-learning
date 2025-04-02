@@ -137,7 +137,7 @@ def main(config: Config):
         device = torch.device("cpu")
     models, optimizers, schedulers = init_model(config, dataset)
 
-    random_sampler = RandomSampler(dataset, replacement=True, num_samples=config.steps) 
+    random_sampler = RandomSampler(dataset, replacement=True, num_samples=config.steps * config.batch_size) 
     train_dataloader = DataLoader(dataset, num_workers=config.data_workers, batch_size=config.batch_size, sampler=random_sampler, pin_memory=False)
     test_dataloader = DataLoader(test_dataset, num_workers=config.data_workers, batch_size=config.batch_size, shuffle=True, pin_memory=False, drop_last=True)
 
