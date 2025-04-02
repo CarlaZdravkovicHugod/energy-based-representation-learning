@@ -84,8 +84,11 @@ def init_model(config, dataset):
 
 
 def train(train_dataloader, models, optimizers, schedulers, config):
-
-    config_dict = asdict(config)
+    # Remove or modify this line that's causing the error
+    config_dict = {
+        k: v for k, v in asdict(config).items() 
+        if k != 'NeptuneLogger' and k != 'device'  # exclude non-serializable objects
+    }
     config.NeptuneLogger.log_config_dict(config_dict)
 
     if torch.cuda.is_available():
