@@ -66,20 +66,22 @@ def test_model(config_path, dataset_type, model_type, checkpoint_path, num_steps
     im_neg = torch.rand_like(im)
     im_negs = gen_image(latents, config, models, im_neg, num_steps)
 
-    plt.imshow(im[0].detach().numpy().transpose(1,2,0))
-    plt.title("Original Image")
-    plt.axis("off")
+    # TODO: Uncomment below to see original image and steps in gen image
+
+    # plt.imshow(im[0].detach().numpy().transpose(1,2,0))
+    # plt.title("Original Image")
+    # plt.axis("off")
 
 
     # Visualize results
-    plt.figure(figsize=(15, 10))
-    for idx, im_neg in enumerate(im_negs):
-        plt.subplot(6, 5, idx + 1)  # Adjust grid size based on the number of images
-        plt.imshow(im_neg[0].detach().cpu().numpy().transpose(1, 2, 0))  # Transpose for RGB images
-        plt.title(f"Step {idx + 1}")
-        plt.axis("off")
-        plt.tight_layout()
-    plt.show()
+    # plt.figure(figsize=(15, 10))
+    # for idx, im_neg in enumerate(im_negs):
+    #     plt.subplot(6, 5, idx + 1)  # Adjust grid size based on the number of images
+    #     plt.imshow(im_neg[0].detach().cpu().numpy().transpose(1, 2, 0))  # Transpose for RGB images
+    #     plt.title(f"Step {idx + 1}")
+    #     plt.axis("off")
+    #     plt.tight_layout()
+    # plt.show()
 
 
     gif_path = f"src/videos/{dataset_type}.gif"
@@ -96,7 +98,7 @@ def test_model(config_path, dataset_type, model_type, checkpoint_path, num_steps
     plt.figure(figsize=(15, 10))
     for i, latent in enumerate(latents):
         im_neg = torch.rand_like(im)  # Initialize a random image
-        im_negs = gen_image(latents, config, models, im_neg, num_steps, idx=i)  # Use only the i-th component
+        im_negs = gen_image(latents, config, models, im_neg, num_steps*2, idx=i)  # Use only the i-th component
 
         # Plot the final generated image for this component
         im_neg_np = im_negs[-1][0].detach().cpu().numpy().transpose(1, 2, 0)
