@@ -125,7 +125,7 @@ def gen_image(latents, FLAGS, models, im_neg, num_steps, idx=None):
 
 
 if __name__ == "__main__":
-    # Clevr:
+    # Clevr our code:
     config_path="/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/src/config/clevr_config.yml"
     dataset_type="Clevr"
     model_type="LatentEBM128"
