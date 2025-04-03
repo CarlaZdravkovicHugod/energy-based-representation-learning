@@ -59,30 +59,14 @@ def test_model(config_path, dataset_type, model_type, checkpoint_path, num_steps
     # Embed latent
     latent = models[0].embed_latent(im)
     latents = torch.chunk(latent, config.components, dim=1)
-    # each latent is a component, and has size (batch_size, latent_dim), how to plot
+    # each latent is a component, and has size (batch_size, latent_dim)
 
-
-    # Generate images
     im_neg = torch.rand_like(im)
     im_negs = gen_image(latents, config, models, im_neg, num_steps)
 
-    # TODO: Uncomment below to see original image and steps in gen image
-
-    # plt.imshow(im[0].detach().numpy().transpose(1,2,0))
-    # plt.title("Original Image")
-    # plt.axis("off")
-
-
-    # Visualize results
-    # plt.figure(figsize=(15, 10))
-    # for idx, im_neg in enumerate(im_negs):
-    #     plt.subplot(6, 5, idx + 1)  # Adjust grid size based on the number of images
-    #     plt.imshow(im_neg[0].detach().cpu().numpy().transpose(1, 2, 0))  # Transpose for RGB images
-    #     plt.title(f"Step {idx + 1}")
-    #     plt.axis("off")
-    #     plt.tight_layout()
-    # plt.show()
-
+    plt.imshow(im[0].detach().numpy().transpose(1,2,0))
+    plt.title("Original Image")
+    plt.axis("off")
 
     gif_path = f"src/videos/{dataset_type}.gif"
     with get_writer(gif_path, mode="I", duration=0.1) as writer:  # `duration` sets the delay between frames in seconds
