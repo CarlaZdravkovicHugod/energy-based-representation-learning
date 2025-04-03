@@ -433,8 +433,7 @@ def train(train_dataloader, test_dataloader, models, optimizers, FLAGS, logdir, 
                     ckpt['optimizer_state_dict_{}'.format(i)] = optimizers[i].state_dict()
 
                 torch.save(ckpt, model_path)
-                with tempfile.TemporaryDirectory() as tempdir:
-                    config.NeptuneLogger.log_model(file_path=osp.join(tempdir, "model_{}.pth".format(it)), file_name="model_it{}".format(it))
+                config.NeptuneLogger.log_model(f"models.pth", f"models_{it}.pth")
                 print("Saving model in directory....")
                 print('run test')
 
