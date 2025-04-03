@@ -99,7 +99,7 @@ if __name__ == "__main__":
 
         # TODO: use dataloader, shape: batch size, 3, 64, 64
         
-        state_dicts = torch.load('/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/src/models/clevr_our_code_steps_200.pth', torch.device('cpu'), weights_only=False)
+        state_dicts = torch.load('/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/src/models/clevr_on_ourde_code_models_51800.pth', torch.device('cpu'), weights_only=False)
         models = [LatentEBM128(config, 'clevr').to(torch.device('cpu')) for _ in range(len(state_dicts))]
         for i, model in enumerate(models):
             model.load_state_dict(state_dicts[i])
@@ -138,6 +138,9 @@ if __name__ == "__main__":
 
         logging.info('Done')
 
+        # TODO: Test hele billedet med alle components, 
+        # TODO: plot hver componenrt for sig,hver comp ind over test billede
+        # TODO: turn this script into a function with different inputs
 
 
     elif not clevr and not our_model:
@@ -173,3 +176,5 @@ if __name__ == "__main__":
         plt.show()
 
         logging.info("LatentEBM128 processing complete")
+
+

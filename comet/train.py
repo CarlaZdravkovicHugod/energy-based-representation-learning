@@ -267,11 +267,11 @@ def test(train_dataloader, models, FLAGS, step=0):
         im_grad[:, :, :, :, :1] = 1
         im_grad[:, :, :, :, -1:] = 1
         im_output = im_grad.permute(0, 3, 1, 4, 2).reshape(batch_size * im_size, FLAGS.components * im_size, 3)
-        im_output = im_output.cpu().detach().numpy() * 100
+        im_output = im_output.cpu().detach().numpy() * 100 # TODO: to device instead of cpu?
 
         im_output = (im_output - im_output.min()) / (im_output.max() - im_output.min())
 
-        im = im.cpu().detach().numpy().transpose((0, 2, 3, 1)).reshape(batch_size*im_size, im_size, 3)
+        im = im.cpu().detach().numpy().transpose((0, 2, 3, 1)).reshape(batch_size*im_size, im_size, 3)# TODO: to device instead of cpu?
 
         im_output = np.concatenate([im_output, im], axis=1)
         im_output = im_output*255
@@ -279,8 +279,8 @@ def test(train_dataloader, models, FLAGS, step=0):
         im_output = im_output.astype(np.uint8)
         imwrite("result/%s/s%08d_grad.png" % (FLAGS.run_name,step), im_output)
 
-        im_neg = im_neg_tensor = im_neg.detach().cpu()
-        im_components = [im_components[i].detach().cpu() for i in range(len(im_components))]
+        im_neg = im_neg_tensor = im_neg.detach().cpu()# TODO: to device instead of cpu?
+        im_components = [im_components[i].detach().cpu() for i in range(len(im_components))]# TODO: to device instead of cpu?
         im_neg = torch.cat([im_neg] + im_components)
         im_neg = np.clip(im_neg, 0.0, 1.0)
         im_neg = make_grid(im_neg, nrow=int(im_neg.shape[0] / (FLAGS.components + 1))).permute(1, 2, 0)
@@ -290,7 +290,7 @@ def test(train_dataloader, models, FLAGS, step=0):
         imwrite("result/%s/s%08d_gen.png" % (FLAGS.run_name,step), im_neg)
 
         if FLAGS.components > 1:
-            im_neg_perm = im_neg_perm.detach().cpu()
+            im_neg_perm = im_neg_perm.detach().cpu()# TODO: to device instead of cpu?
             im_components_perm = []
             for i,im_component in enumerate(im_components):
                 im_components_perm.append(torch.cat([im_component[i:], im_component[:i]]))
@@ -301,7 +301,8 @@ def test(train_dataloader, models, FLAGS, step=0):
             im_neg_perm = im_neg_perm.astype(np.uint8)
             imwrite("result/%s/s%08d_gen_perm.png" % (FLAGS.run_name,step), im_neg_perm)
 
-            im_neg_additional = im_neg_additional.detach().cpu()
+            im_neg_additional = im_neg_additional.detach().cpu()# TODO: to device instead of cpu?
+
             # for i in range(FLAGS.num_additional):
             #     im_components.append(torch.roll(im_components[i], i + 1, 0))
             im_neg_additional = torch.cat([im_neg_additional] + im_components)
@@ -502,7 +503,9 @@ def main_single(rank, FLAGS):
 
     if torch.cuda.is_available():
         torch.cuda.set_device(rank)
-    device = torch.device('cpu')
+        device = torch.device("cuda")
+    else:
+        device = torch.device('cpu')
 
     logdir = osp.join('result', FLAGS.run_name)
     FLAGS_OLD = FLAGS
