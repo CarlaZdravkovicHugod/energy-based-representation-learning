@@ -132,7 +132,7 @@ def gen_image(latents, FLAGS, models, im_neg, im, steps, sample=False, create_gr
                     ix = j % FLAGS.components
                     energy = models[j % FLAGS.components].forward(im_neg, latents[j]) + energy
 
-            im_grad, = torch.autograd.grad([energy.sum()], [im_neg], create_graph=create_graph)
+            im_grad, = torch.autograd.grad([energy.sum()], [im_neg], create_graph=True)
 
             im_neg = im_neg - FLAGS.step_lr * im_grad
 
