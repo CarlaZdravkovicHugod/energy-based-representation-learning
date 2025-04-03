@@ -94,11 +94,16 @@ def average_gradients(models):
 
 
 def gen_image(latents, FLAGS, models, im_neg, im, steps, sample=False, create_graph=True, idx=None, weights=None):
-    im_noise = torch.randn_like(im_neg).detach()
+    if torch.cuda.is_available():
+        dev = torch.device("cuda")
+    else:
+        dev = torch.device("cpu")
+    
+    im_noise = torch.randn_like(im_neg).detach().to(dev) # noise on same debice
 
     im_negs = []
 
-    latents = torch.stack(latents, dim=0)
+    latents = torch.stack(latents, dim=0).to(dev)
 
     if FLAGS.decoder:
         masks = []
@@ -110,7 +115,7 @@ def gen_image(latents, FLAGS, models, im_neg, im, steps, sample=False, create_gr
                 color, mask = models[i % FLAGS.components].forward(None, latents[i])
                 masks.append(mask)
                 colors.append(color)
-        masks = F.softmax(torch.stack(masks, dim=1), dim=1)
+        masks = F.softmax(torch.stack(masks, dim=1), dim=1) # ensure device
         colors = torch.stack(colors, dim=1)
         im_neg = torch.sum(masks * colors, dim=1)
         im_negs = [im_neg]
@@ -138,9 +143,9 @@ def gen_image(latents, FLAGS, models, im_neg, im, steps, sample=False, create_gr
 
             latents = latents
 
-            im_neg = torch.clamp(im_neg, 0, 1)
+            im_neg = torch.clamp(im_neg, 0, 1).to(dev)
             im_negs.append(im_neg)
-            im_neg = im_neg.detach()
+            im_neg = im_neg.detach().to(dev)
             im_neg.requires_grad_()
 
     return im_neg, im_negs, im_grad, masks
