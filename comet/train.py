@@ -420,9 +420,8 @@ def train(train_dataloader, test_dataloader, models, optimizers, FLAGS, logdir, 
 
                 print(string)
 
-            if FLAGS.num_epoch % 100 == 0:
+            if it % 100 == 0:  # Log every 1000 steps
                 model_path = osp.join(logdir, "model_{}.pth".format(it))
-
 
                 ckpt = {'FLAGS': FLAGS.to_dict()}
 
@@ -432,8 +431,19 @@ def train(train_dataloader, test_dataloader, models, optimizers, FLAGS, logdir, 
                 for i in range(len(optimizers)):
                     ckpt['optimizer_state_dict_{}'.format(i)] = optimizers[i].state_dict()
 
+                # Save the model checkpoint
                 torch.save(ckpt, model_path)
-                config.NeptuneLogger.log_model(f"models.pth", f"models_{it}.pth")
+
+                # Log the model to Neptune
+                try:
+                    if osp.exists(model_path):
+                        config.NeptuneLogger.log_model(model_path, f"models_{it}.pth")
+                        print(f"Model logged to Neptune: models_{it}.pth")
+                    else:
+                        print(f"Model file not found: {model_path}")
+                except Exception as e:
+                    print(f"Failed to log model to Neptune: {e}")
+
                 print("Saving model in directory....")
                 print('run test')
 
