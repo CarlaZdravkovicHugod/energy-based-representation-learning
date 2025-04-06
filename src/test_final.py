@@ -9,7 +9,7 @@ from tqdm import tqdm
 from torch.utils.data import DataLoader, RandomSampler
 
 
-def test_model(config_path, dataset_type, model_type, checkpoint_path, num_steps=30, batch_size=12):
+def reconstruct_and_plot(config_path, dataset_type, model_type, checkpoint_path, num_steps=30, batch_size=12):
     """
     Test a model on a given dataset and visualize the results.
 
@@ -69,7 +69,7 @@ def test_model(config_path, dataset_type, model_type, checkpoint_path, num_steps
     plt.axis("off")
 
     gif_path = f"src/videos/{dataset_type}.gif"
-    with get_writer(gif_path, mode="I", duration=0.1) as writer:  # `duration` sets the delay between frames in seconds
+    with get_writer(gif_path, mode="I", duration=0.13) as writer:  # `duration` sets the delay between frames in seconds
         for im_neg in im_negs:
             im_neg_np = im_neg[0].detach().cpu().numpy().transpose(1, 2, 0)
             writer.append_data((im_neg_np * 255).astype('uint8'))
@@ -137,7 +137,7 @@ if __name__ == "__main__":
     # model_type = 'LatentEBM'
     # checkpoint_path = '/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/models.pth'
 
-    test_model(
+    reconstruct_and_plot(
         config_path,
         dataset_type,
         model_type,

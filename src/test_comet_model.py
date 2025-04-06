@@ -38,7 +38,7 @@ def gen_image(latents, FLAGS, models, im_neg, num_steps, idx=None):
 
 if __name__ == "__main__":
 
-
+    # Load a good comet model
     ckpt = torch.load('/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/src/models/clevr_comet_model_400.pth', torch.device('cpu'))
     config = EasyDict(ckpt['FLAGS'])
 
