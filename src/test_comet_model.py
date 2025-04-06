@@ -39,14 +39,14 @@ def gen_image(latents, FLAGS, models, im_neg, num_steps, idx=None):
 if __name__ == "__main__":
 
     # Load a good comet model
-    ckpt = torch.load('/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/src/models/clevr_comet_model_400.pth', torch.device('cpu'))
+    ckpt = torch.load('/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/src/models/clevr_comet_9900.pth.pth', torch.device('cpu'))
     config = EasyDict(ckpt['FLAGS'])
 
     dataset = Clevr(config, train=False)
     state_dicts = ckpt['model_state_dict_0']
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    model = LatentEBM(config, 'celebahq_128').to(device)
+    model = LatentEBM(config, 'clevr').to(device)
     model.load_state_dict(state_dicts)
     models = [model for i in range(4)]
 
@@ -58,18 +58,37 @@ if __name__ == "__main__":
     im_neg = torch.rand_like(tensor_img)
     im_negs = gen_image(latents, config, models, im_neg, 30)
 
+    im = tensor_img
 
-    # Visualize each tensor in im_negs
+    plt.imshow(im[0].detach().numpy().transpose(1,2,0))
+    plt.title("Original Image")
+    plt.axis("off")
+
+    gif_path = f"src/videos/clevr_comet.gif"
+    with get_writer(gif_path, mode="I", duration=0.13) as writer:  # `duration` sets the delay between frames in seconds
+        for im_neg in im_negs:
+            im_neg_np = im_neg[0].detach().cpu().numpy().transpose(1, 2, 0)
+            writer.append_data((im_neg_np * 255).astype('uint8'))
+
+    print(f"GIF saved at {gif_path}")
+
+    # TODO: plot the im_neg as heay surface
+
+    print("Reconstructing images using specific latents...")
     plt.figure(figsize=(15, 10))
-    for idx, im_neg in enumerate(im_negs):
-        plt.subplot(6, 5, idx + 1)  # Adjust grid size based on the number of images
-        plt.imshow(im_neg[0].squeeze(0).detach().numpy().transpose(1,2,0), cmap='gray')
-        plt.title(f"Step {idx + 1}")
+    for i, latent in enumerate(latents):
+        im_neg = torch.rand_like(im)  # Initialize a random image
+        im_negs = gen_image(latents, config, models, im_neg, 30*2, idx=i)  # Use only the i-th component
+
+        # Plot the final generated image for this component
+        im_neg_np = im_negs[-1][0].detach().cpu().numpy().transpose(1, 2, 0)
+        plt.subplot(1, len(latents), i + 1)
+        plt.imshow(im_neg_np)
+        plt.title(f"Component {i + 1}")
         plt.axis("off")
+        plt.tight_layout()
 
-    plt.tight_layout()
+    # save image:
+    plt.savefig(f"src/videos/clevr_comet_reconstructed.png")
     plt.show()
-
-    logging.info("LatentEBM128 processing complete")
-
 
