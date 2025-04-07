@@ -39,7 +39,7 @@ def gen_image(latents, FLAGS, models, im_neg, num_steps, idx=None):
 if __name__ == "__main__":
 
     # Load a good comet model
-    ckpt = torch.load('/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/src/models/clevr_comet_9900.pth.pth', torch.device('cpu'))
+    ckpt = torch.load('/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/src/models/clevr_comet_99900.pth.pth', torch.device('cpu'))
     config = EasyDict(ckpt['FLAGS'])
 
     dataset = Clevr(config, train=False)
@@ -64,7 +64,7 @@ if __name__ == "__main__":
     plt.title("Original Image")
     plt.axis("off")
 
-    gif_path = f"src/videos/clevr_comet.gif"
+    gif_path = f"src/videos/clevr_comet_best.gif"
     with get_writer(gif_path, mode="I", duration=0.13) as writer:  # `duration` sets the delay between frames in seconds
         for im_neg in im_negs:
             im_neg_np = im_neg[0].detach().cpu().numpy().transpose(1, 2, 0)
@@ -89,6 +89,6 @@ if __name__ == "__main__":
         plt.tight_layout()
 
     # save image:
-    plt.savefig(f"src/videos/clevr_comet_reconstructed.png")
+    plt.savefig(f"src/videos/clevr_comet_reconstructed_best.png")
     plt.show()
 
