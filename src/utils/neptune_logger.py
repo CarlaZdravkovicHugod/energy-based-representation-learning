@@ -18,6 +18,10 @@ class NeptuneLogger:
     def log_metadata(self, metadata):
         self.run["parameters"] = metadata
 
+    def log_config_dict(self, config_dict, folder="config"):
+        for key, value in config_dict.items():
+            self.run[f"{folder}/{key}"] = value
+
     def log_metric(self, metric_name, metric_value, step=None):
         """
         Log a metric to Neptune with an optional step.

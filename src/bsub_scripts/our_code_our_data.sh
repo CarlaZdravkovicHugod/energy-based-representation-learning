@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # A100 GPU queue, there is also gpua40 and gpua10
-#BSUB -q gpua100
+#BSUB -q gpua40
 
 # job name
 #BSUB -J 2DMRI_Data
@@ -22,5 +22,4 @@
 # your training script here, e.g.
 # activate environment ...
 source .venv/bin/activate
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 PYTHONPATH="." python src/train.py --config="src/config/2DMRI_config.yml"

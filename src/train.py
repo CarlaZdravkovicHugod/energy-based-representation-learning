@@ -10,6 +10,8 @@ from tqdm import tqdm
 from src.comet_models import LatentEBM
 from dataloader import Clevr, BrainDataset, MRI2D
 import threading
+from dataclasses import asdict
+from src.utils.neptune_logger import NeptuneLogger
 
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(parent_dir)
@@ -76,13 +78,16 @@ def gen_image(latents, config, models, im_neg, im, steps = 10, create_graph=True
 
 
 def init_model(config, dataset):
-    models = [LatentEBM(config, dataset).to(config.device) for _ in range(config.ensembles)] # TODO? enseblemes should be == components
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    models = [LatentEBM(config, dataset).to(device) for _ in range(config.ensembles)] # TODO? enseblemes should be == components
     optimizers = [Adam(model.parameters(), lr=config.lr) for model in models]
-    schedulers = [torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=50) for optimizer in optimizers]
+    schedulers = [torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=200) for optimizer in optimizers]
     return models, optimizers, schedulers
 
 
 def train(train_dataloader, models, optimizers, schedulers, config):
+    # Remove or modify this line that's causing the error
+    neptune_logger.log_config_dict(asdict(config))
 
     if torch.cuda.is_available():
         dev = torch.device("cuda")
@@ -101,9 +106,8 @@ def train(train_dataloader, models, optimizers, schedulers, config):
         im_loss = torch.pow(im_negs[:, -1:] - im[:, None], 2).mean()
         loss = im_loss
 
-        config.NeptuneLogger.log_metric("im_loss", im_loss, step=int(it))
-        config.NeptuneLogger.log_metric("loss", loss, step=int(it))
-        config.NeptuneLogger.log_metric("scheduler_lr", schedulers[0].get_last_lr()[0], step=int(it))
+        neptune_logger.log_metric("loss", loss, step=int(it))
+        neptune_logger.log_metric("scheduler_lr", schedulers[0].get_last_lr()[0], step=int(it))
             
         loss.backward()
 
@@ -117,10 +121,10 @@ def train(train_dataloader, models, optimizers, schedulers, config):
             
             models_copy = [model.state_dict() for model in models]
             torch.save(models_copy, f"models.pth")
-            config.NeptuneLogger.log_model(f"models.pth", f"models.pth")
+            neptune_logger.log_model(f"models.pth", f"models_{it}.pth")
 
 
-def main(config: Config):
+def main(config: Config, neptune_logger: NeptuneLogger):
     if config.dataset == 'MRI':
         dataset = BrainDataset(config, train=True)
         test_dataset = BrainDataset(config, train=False)
@@ -134,10 +138,6 @@ def main(config: Config):
     print(f'Train dataset has {len(dataset)} samples')
     print(f'Test dataset has {len(test_dataset)} samples')
 
-    if torch.cuda.is_available():
-        device = torch.device("cuda")
-    else:
-        device = torch.device("cpu")
     models, optimizers, schedulers = init_model(config, dataset)
 
     random_sampler = RandomSampler(dataset, replacement=True, num_samples=config.steps * config.batch_size) 
@@ -167,11 +167,12 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     config = load_config(args.config)
+    neptune_logger = NeptuneLogger(test=False, description=config.run_name)
 
     exit_listener = threading.Thread(target=listen_for_exit, daemon=True)
     exit_listener.start()
 
-    main(config)
+    main(config, neptune_logger)
 
     # TODO: consider gradient checkpointing to reduce memory usage,
     # TODO: or use AMP

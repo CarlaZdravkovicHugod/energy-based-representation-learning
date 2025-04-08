@@ -4,7 +4,7 @@
 #BSUB -q gpua100
 
 # job name
-#BSUB -J job_name_goes_here
+#BSUB -J comet_data
 
 # 4 cpus, 1 machine, 1 gpu, 24 hours (the max)
 #BSUB -n 4
@@ -21,6 +21,6 @@
 
 # your training script here, e.g.
 # activate environment ...
-# dotenv torchvision ipython imageio neptune matplotlib seaborn scikit-image nibabel
+# dotenv torchvision ipython imageio neptune matplotlib seaborn scikit-image nibabel scikit-learn easydict
 source .venv/bin/activate
 PYTHONPATH="." python src/train.py --config='src/config/clevr_config.yml'

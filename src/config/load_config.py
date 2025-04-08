@@ -12,8 +12,6 @@ load_dotenv()
 class Config:
     run_name: str
     test_run: bool
-    device: torch.device
-    NeptuneLogger: NeptuneLogger
     batch_size: int
     data_workers: int # TODO: determine
     shuffle_dataset: bool
@@ -30,7 +28,6 @@ class Config:
     recurrent_model: bool # use a recurrent model to infer the latents
     dataset: str # dataset to use
     steps: int # TODO: determine optimal
-    device: str # TODO: remove subscript
     decoder: bool
     channels: int # number of channels in the input image
     
@@ -56,10 +53,7 @@ def load_config(config_path: str) -> Config:
     config = logic_check(config_dict)
 
     return Config(
-        **config,
-        device=torch.device("cuda" if torch.cuda.is_available() else "cpu"), # TODO: in config or here?
-        # NeptuneLogger=NeptuneLogger(config["test_run"], description=config["run_name"]),
-        NeptuneLogger=NeptuneLogger(test=False, description=config["run_name"])
+        **config
     )
 
 if __name__ == "__main__":
