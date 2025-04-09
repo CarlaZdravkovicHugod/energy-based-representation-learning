@@ -122,7 +122,7 @@ def train(train_dataloader, models, optimizers, schedulers, config):
             
             models_copy = [model.state_dict() for model in models]
             torch.save(models_copy, f"models/models.pth")
-            neptune_logger.log_model(f"models/models.pth", f"models_{it}.pth")
+            neptune_logger.log_model(f"models.pth", f"models_{it}.pth")
 
 
 def main(config: Config, neptune_logger: NeptuneLogger):
