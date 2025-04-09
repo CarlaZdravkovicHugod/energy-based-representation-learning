@@ -102,8 +102,8 @@ class MRI2D(data.Dataset):
         sample = np.load(npy_path)
     
         sample = (sample - sample.min()) / (sample.max() - sample.min())
-        sample = F.pad(torch.tensor(sample), (0, 0, 256-sample.shape[0], 0))
-        sample = sample.unsqueeze(0) # add channel dimension explicitly
+        # sample = F.pad(torch.tensor(sample), (0, 0, 256-sample.shape[0], 0))
+        sample = torch.tensor(sample).unsqueeze(0) # add channel dimension explicitly
         
         # TODO: consider removing black row
         return sample, idx
