@@ -121,7 +121,7 @@ def train(train_dataloader, models, optimizers, schedulers, config):
         if it % 100 == 0:
             
             models_copy = [model.state_dict() for model in models]
-            torch.save(models_copy, f"models/models.pth")
+            torch.save(models_copy, f"models.pth")
             neptune_logger.log_model(f"models.pth", f"models_{it}.pth")
 
 
