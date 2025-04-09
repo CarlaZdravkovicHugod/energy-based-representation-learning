@@ -85,6 +85,7 @@ def init_model(config, dataset):
     else:
         models = [LatentEBM128(config, dataset).to(device) for _ in range(config.ensembles)]
     # TODO? enseblemes should be == components
+    # TODO: we should make some runs where we opitmize lr, steps, batches etc.
     optimizers = [Adam(model.parameters(), lr=config.lr) for model in models]
     schedulers = [torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=200) for optimizer in optimizers]
     return models, optimizers, schedulers
