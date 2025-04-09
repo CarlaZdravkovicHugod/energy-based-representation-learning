@@ -272,7 +272,7 @@ class LatentEBM128(nn.Module):
             self.conv1 = nn.Conv2d(3, filter_dim // 2, kernel_size=3, stride=1, padding=1, bias=True)
             self.conv1_embed = nn.Conv2d(2, filter_dim // 2, kernel_size=3, stride=1, padding=1, bias=True)
         else:
-            self.conv1 = nn.Conv2d(3, filter_dim // 4, kernel_size=3, stride=1, padding=1, bias=True)
+            self.conv1 = nn.Conv2d(args.channels, filter_dim // 4, kernel_size=3, stride=1, padding=1, bias=True)
         self.avg_pool = nn.AvgPool2d(3, stride=2, padding=1)
 
         self.gain = nn.Linear(args.latent_dim, filter_dim // 4)
@@ -295,7 +295,7 @@ class LatentEBM128(nn.Module):
         self.latent_map = nn.Linear(latent_dim, filter_dim * 8)
         self.energy_map = nn.Linear(filter_dim * 2, 1)
 
-        self.embed_conv1 = nn.Conv2d(3, filter_dim, kernel_size=3, stride=1, padding=1) # TODO: dynamic
+        self.embed_conv1 = nn.Conv2d(args.channels, filter_dim, kernel_size=3, stride=1, padding=1)
         self.embed_layer1 = CondResBlockNoLatent(filters=filter_dim, rescale=False, downsample=True)
         self.embed_layer2 = CondResBlockNoLatent(filters=filter_dim, rescale=False, downsample=True)
         self.embed_layer3 = CondResBlockNoLatent(filters=filter_dim, rescale=False, downsample=True)

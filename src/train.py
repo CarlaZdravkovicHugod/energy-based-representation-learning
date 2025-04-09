@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader, RandomSampler
 import argparse
 import logging
 from tqdm import tqdm
-from src.comet_models import LatentEBM
+from src.comet_models import LatentEBM, LatentEBM128
 from dataloader import Clevr, BrainDataset, MRI2D
 import threading
 from dataclasses import asdict
@@ -21,6 +21,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 logging.info("Importing log this")
 
+# TODO: try using latentEBM128
 
 def gen_image(latents, config, models, im_neg, im, steps = 10, create_graph=True, idx=None):
     # TODO: the samples were used through langevin, where did they go?
@@ -79,7 +80,11 @@ def gen_image(latents, config, models, im_neg, im, steps = 10, create_graph=True
 
 def init_model(config, dataset):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    models = [LatentEBM(config, dataset).to(device) for _ in range(config.ensembles)] # TODO? enseblemes should be == components
+    if config.model == 'LatentEBM':
+        models = [LatentEBM(config, dataset).to(device) for _ in range(config.ensembles)]
+    else:
+        models = [LatentEBM128(config, dataset).to(device) for _ in range(config.ensembles)]
+    # TODO? enseblemes should be == components
     optimizers = [Adam(model.parameters(), lr=config.lr) for model in models]
     schedulers = [torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=200) for optimizer in optimizers]
     return models, optimizers, schedulers
