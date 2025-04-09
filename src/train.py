@@ -107,7 +107,8 @@ def train(train_dataloader, models, optimizers, schedulers, config):
         loss = im_loss
 
         neptune_logger.log_metric("loss", loss, step=int(it))
-        neptune_logger.log_metric("scheduler_lr", schedulers[0].get_last_lr()[0], step=int(it))
+        # get_last_lr(); since ReduceLROnPlateau is not inherited from _LRScheduler this function is not defined
+        neptune_logger.log_metric("scheduler_lr", optimizers[0].param_groups[0]['lr'], step=int(it))
             
         loss.backward()
 
@@ -120,8 +121,8 @@ def train(train_dataloader, models, optimizers, schedulers, config):
         if it % 100 == 0:
             
             models_copy = [model.state_dict() for model in models]
-            torch.save(models_copy, f"models.pth")
-            neptune_logger.log_model(f"models.pth", f"models_{it}.pth")
+            torch.save(models_copy, f"models/models.pth")
+            neptune_logger.log_model(f"models/models.pth", f"models_{it}.pth")
 
 
 def main(config: Config, neptune_logger: NeptuneLogger):
@@ -163,7 +164,7 @@ def listen_for_exit():
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str, required=False, help="Path to config file", default='src/config/clevr_config.yml') # src/config/test.yml
+    parser.add_argument("--config", type=str, required=False, help="Path to config file", default='src/config/2DMRI_config.yml') # src/config/test.yml
     args = parser.parse_args()
 
     config = load_config(args.config)
