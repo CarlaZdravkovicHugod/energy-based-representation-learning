@@ -16,6 +16,7 @@ org_img = np.load(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 
 sample, _ = dataset[0]
 sample2, _ = dataset[2]
 
+axial_img = plt.imread(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'figures', 'MRI-T1-axial-image.jpg')))
 
 # first top part of the image is always just a black line
 # so remove it:
@@ -24,6 +25,18 @@ sample2, _ = dataset[2]
 # plt.title(f"Sample 1 without first 12 cols and 28 rows")
 # plt.axis('off')
 # plt.show()
+
+
+# Vizuale where slices are made
+plt.figure(figsize=(8, 8))
+plt.imshow(axial_img, cmap='gray')
+plt.axis('off')
+# make a red dot on the center of the image
+plt.scatter([axial_img.shape[1] // 2 + 5, axial_img.shape[1] // 2 - 5], [axial_img.shape[0] // 2, axial_img.shape[0] // 2], color=['red', 'blue'], s=100, label='Slice location', marker='.', linewidths=0.2)
+plt.savefig(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'figures', 'axial_image.png')), bbox_inches='tight')
+plt.show()
+
+
 
 # Visualize original image compared to sample
 plt.figure(figsize=(8, 4))
@@ -65,7 +78,7 @@ plt.title(f"Distribution of pixel values in original image")
 plt.xlabel("Pixel value")
 plt.ylabel("Frequency")
 plt.grid()
-plt.savefig(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'figures', 'histograms_comparison.png')))
+plt.savefig(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'figures', 'histograms_comparison.png')), bbox_inches='tight')
 plt.show()
 
 
