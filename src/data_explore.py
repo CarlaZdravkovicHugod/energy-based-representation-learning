@@ -13,7 +13,9 @@ config = load_config(os.path.abspath(os.path.join(os.path.dirname(__file__), 'co
 dataset = MRI2D(config)
 
 org_img = np.load(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'data', 'T1w_sub-0001_x-5.npy')))
+print(f"Original image shape: {org_img.shape}")
 sample, _ = dataset[0]
+print(f"Sample shape: {sample.shape}")
 sample2, _ = dataset[2]
 
 axial_img = plt.imread(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'figures', 'MRI-T1-axial-image.jpg')))
@@ -66,14 +68,14 @@ plt.show()
 
 # Visualize the distribution of the data
 plt.figure(figsize=(10, 4))
-plt.subplot(1, 2, 1)
-plt.hist(sample[0].flatten(), bins=50, color='blue', alpha=0.7)
+plt.subplot(1, 2, 2)
+plt.hist(sample[0].flatten(), bins=100, color='blue', alpha=0.7)
 plt.title(f"Distribution of pixel values in random sample")
 plt.xlabel("Pixel value")
 plt.ylabel("Frequency")
 plt.grid()
-plt.subplot(1, 2, 2)
-plt.hist(org_img.flatten(), bins=50, color='blue', alpha=0.7)
+plt.subplot(1, 2, 1)
+plt.hist(org_img.flatten(), bins=100, color='blue', alpha=0.7)
 plt.title(f"Distribution of pixel values in original image")
 plt.xlabel("Pixel value")
 plt.ylabel("Frequency")
