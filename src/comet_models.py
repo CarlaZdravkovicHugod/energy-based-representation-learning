@@ -295,7 +295,7 @@ class LatentEBM128(nn.Module):
         self.latent_map = nn.Linear(latent_dim, filter_dim * 8)
         self.energy_map = nn.Linear(filter_dim * 2, 1)
 
-        self.embed_conv1 = nn.Conv2d(3, filter_dim, kernel_size=3, stride=1, padding=1)
+        self.embed_conv1 = nn.Conv2d(3, filter_dim, kernel_size=3, stride=1, padding=1) # TODO: dynamic
         self.embed_layer1 = CondResBlockNoLatent(filters=filter_dim, rescale=False, downsample=True)
         self.embed_layer2 = CondResBlockNoLatent(filters=filter_dim, rescale=False, downsample=True)
         self.embed_layer3 = CondResBlockNoLatent(filters=filter_dim, rescale=False, downsample=True)
@@ -380,7 +380,6 @@ class LatentEBM128(nn.Module):
         else:
             x = x.mean(dim=2).mean(dim=2)
 
-            x = x.view(x.size(0), -1)
             output = self.embed_fc1(x)
             x = F.relu(self.embed_fc1(x))
             output = self.embed_fc2(x)
@@ -548,7 +547,7 @@ class LatentEBM(nn.Module):
             elif x.dim() == 3:
                 x = x.mean(dim=2)  # For 3D tensors
 
-            x = x.view(x.size(0), -1) # shape of x should be 64x64
+            x = x.view(x.size(0), -1) # shape of x should be 64x64 TODO: this might be wrong
             output = self.embed_fc1(x) 
             x = F.relu(self.embed_fc1(x))
             output = self.embed_fc2(x)

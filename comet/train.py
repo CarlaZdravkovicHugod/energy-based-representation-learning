@@ -5,8 +5,7 @@ import torch.nn.functional as F
 import torch.multiprocessing as mp
 import torch.distributed as dist
 from torch.optim import Adam
-from torch.utils.tensorboard import SummaryWriter
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, RandomSampler
 from torchvision.utils import make_grid
 import numpy as np
 from imageio import imwrite
@@ -17,18 +16,15 @@ import logging
 import tempfile
 from tqdm import tqdm
 from models import LatentEBM, ToyEBM, BetaVAE_H, LatentEBM128
-from dataset import IntPhysDataset, ToyDataset, CubesColor, CubesColorPair, Nvidia, Clevr, Exercise, CelebaHQ, Kitti, Faces, ClevrLighting, MRI2D, MultiDspritesLoader, TetrominoesLoader 
-logging.getLogger("tensorflow").setLevel(logging.ERROR)
-import tensorflow as tf
-import warnings
-warnings.filterwarnings("ignore")
-tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
+from dataset import IntPhysDataset, ToyDataset, CubesColor, CubesColorPair, Nvidia, Clevr, Exercise, CelebaHQ, Kitti, Faces, ClevrLighting, MRI2D 
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(parent_dir)
+
 from src.config.load_config import load_config
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s')
 
+print('after imports')
 # """Parse input arguments"""
 parser = argparse.ArgumentParser(description='Train EBM model')
 
@@ -68,7 +64,7 @@ parser = argparse.ArgumentParser(description='Train EBM model')
 # parser.add_argument('--spatial_feat', action='store_true', help='use spatial latents for object segmentation')
 
 
-# parser.add_argument('--num_steps', default=10, type=int, help='Steps of gradient descent for training')
+# parser.add_argument('--steps', default=10, type=int, help='Steps of gradient descent for training')
 # parser.add_argument('--num_visuals', default=16, type=int, help='Number of visuals')
 # parser.add_argument('--num_additional', default=0, type=int, help='Number of additional components to add')
 
@@ -97,13 +93,17 @@ def average_gradients(models):
             param.grad.data /= size
 
 
-def gen_image(latents, FLAGS, models, im_neg, im, num_steps, sample=False, create_graph=True, idx=None, weights=None):
-    im_noise = torch.randn_like(im_neg).detach()
-    im_negs_samples = []
+def gen_image(latents, FLAGS, models, im_neg, im, steps, sample=False, create_graph=True, idx=None, weights=None):
+    if torch.cuda.is_available():
+        dev = torch.device("cuda")
+    else:
+        dev = torch.device("cpu")
+    
+    im_noise = torch.randn_like(im_neg).detach().to(dev) # noise on same debice
 
     im_negs = []
 
-    latents = torch.stack(latents, dim=0)
+    latents = torch.stack(latents, dim=0).to(dev)
 
     if FLAGS.decoder:
         masks = []
@@ -115,7 +115,7 @@ def gen_image(latents, FLAGS, models, im_neg, im, num_steps, sample=False, creat
                 color, mask = models[i % FLAGS.components].forward(None, latents[i])
                 masks.append(mask)
                 colors.append(color)
-        masks = F.softmax(torch.stack(masks, dim=1), dim=1)
+        masks = F.softmax(torch.stack(masks, dim=1), dim=1) # ensure device
         colors = torch.stack(colors, dim=1)
         im_neg = torch.sum(masks * colors, dim=1)
         im_negs = [im_neg]
@@ -126,7 +126,7 @@ def gen_image(latents, FLAGS, models, im_neg, im, num_steps, sample=False, creat
         masks = torch.zeros(s[0], FLAGS.components, s[-2], s[-1]).to(im_neg.device)
         masks.requires_grad_(requires_grad=True)
 
-        for i in range(num_steps):
+        for i in range(steps):
             im_noise.normal_()
 
             energy = 0
@@ -137,15 +137,15 @@ def gen_image(latents, FLAGS, models, im_neg, im, num_steps, sample=False, creat
                     ix = j % FLAGS.components
                     energy = models[j % FLAGS.components].forward(im_neg, latents[j]) + energy
 
-            im_grad, = torch.autograd.grad([energy.sum()], [im_neg], create_graph=create_graph)
+            im_grad, = torch.autograd.grad([energy.sum()], [im_neg], create_graph=True)
 
             im_neg = im_neg - FLAGS.step_lr * im_grad
 
             latents = latents
 
-            im_neg = torch.clamp(im_neg, 0, 1)
+            im_neg = torch.clamp(im_neg, 0, 1).to(dev)
             im_negs.append(im_neg)
-            im_neg = im_neg.detach()
+            im_neg = im_neg.detach().to(dev)
             im_neg.requires_grad_()
 
     return im_neg, im_negs, im_grad, masks
@@ -170,15 +170,15 @@ def init_model(FLAGS, device, dataset):
         if FLAGS.dataset == "toy":
             model = ToyEBM(FLAGS, dataset).to(device)
         else:
-            if FLAGS.vae_beta:
-                model = BetaVAE_H(z_dim=FLAGS.latent_dim, nc=3).to(device)
-                FLAGS.ensembles = 1
-                FLAGS.components = 1
-            else:
-                if FLAGS.dataset == "celebahq_128":
-                    model = LatentEBM128(FLAGS, dataset).to(device)
-                else:
-                    model = LatentEBM(FLAGS, dataset).to(device)
+            # if FLAGS.vae_beta:
+            #     model = BetaVAE_H(z_dim=FLAGS.latent_dim, nc=3).to(device)
+            #     FLAGS.ensembles = 1
+            #     FLAGS.components = 1
+            # else:
+            #     if FLAGS.dataset == "celebahq_128":
+            #         model = LatentEBM128(FLAGS, dataset).to(device)
+            #     else:
+            model = LatentEBM(FLAGS, dataset).to(device)
 
         models = [model for i in range(FLAGS.ensembles)]
         optimizers = [Adam(model.parameters(), lr=FLAGS.lr)]
@@ -201,11 +201,11 @@ def test(train_dataloader, models, FLAGS, step=0):
     [model.eval() for model in models]
     logging.info('Testing model')
     for im, idx in tqdm(train_dataloader):
-
+        num_visuals = 16
         im = im.to(dev)
         idx = idx.to(dev)
-        im = im[:FLAGS.num_visuals]
-        idx = idx[:FLAGS.num_visuals]
+        im = im[:num_visuals]
+        idx = idx[:num_visuals]
         batch_size = im.size(0)
         latent = models[0].embed_latent(im)
 
@@ -213,7 +213,7 @@ def test(train_dataloader, models, FLAGS, step=0):
 
         im_init = torch.rand_like(im)
         assert len(latents) == FLAGS.components
-        im_neg, _, im_grad, mask = gen_image(latents, FLAGS, models, im_init, im, FLAGS.num_steps, sample=FLAGS.sample, 
+        im_neg, _, im_grad, mask = gen_image(latents, FLAGS, models, im_init, im, FLAGS.steps, 
                                        create_graph=False)
         im_neg = im_neg.detach()
         im_components = []
@@ -222,20 +222,20 @@ def test(train_dataloader, models, FLAGS, step=0):
             for i, latent in enumerate(latents):
                 im_init = torch.rand_like(im)
                 latents_select = latents[i:i+1]
-                im_component, _, _, _ = gen_image(latents_select, FLAGS, models, im_init, im, FLAGS.num_steps, sample=FLAGS.sample,
+                im_component, _, _, _ = gen_image(latents_select, FLAGS, models, im_init, im, FLAGS.steps,
                                            create_graph=False)
                 im_components.append(im_component)
 
             im_init = torch.rand_like(im)
             latents_perm = [torch.cat([latent[i:], latent[:i]], dim=0) for i, latent in enumerate(latents)]
-            im_neg_perm, _, im_grad_perm, _ = gen_image(latents_perm, FLAGS, models, im_init, im, FLAGS.num_steps, sample=FLAGS.sample,
+            im_neg_perm, _, im_grad_perm, _ = gen_image(latents_perm, FLAGS, models, im_init, im, FLAGS.steps,
                                                      create_graph=False)
             im_neg_perm = im_neg_perm.detach()
             im_init = torch.rand_like(im)
             add_latents = list(latents)
-            for i in range(FLAGS.num_additional):
-                add_latents.append(torch.roll(latents[i], i + 1, 0))
-            im_neg_additional, _, _, _ = gen_image(tuple(add_latents), FLAGS, models, im_init, im, FLAGS.num_steps, sample=FLAGS.sample,
+            # for i in range(FLAGS.num_additional):
+            #     add_latents.append(torch.roll(latents[i], i + 1, 0))
+            im_neg_additional, _, _, _ = gen_image(tuple(add_latents), FLAGS, models, im_init, im, FLAGS.steps,
                                                      create_graph=False)
 
         im.requires_grad = True
@@ -272,30 +272,30 @@ def test(train_dataloader, models, FLAGS, step=0):
         im_grad[:, :, :, :, :1] = 1
         im_grad[:, :, :, :, -1:] = 1
         im_output = im_grad.permute(0, 3, 1, 4, 2).reshape(batch_size * im_size, FLAGS.components * im_size, 3)
-        im_output = im_output.cpu().detach().numpy() * 100
+        im_output = im_output.cpu().detach().numpy() * 100 # TODO: to device instead of cpu?
 
         im_output = (im_output - im_output.min()) / (im_output.max() - im_output.min())
 
-        im = im.cpu().detach().numpy().transpose((0, 2, 3, 1)).reshape(batch_size*im_size, im_size, 3)
+        im = im.cpu().detach().numpy().transpose((0, 2, 3, 1)).reshape(batch_size*im_size, im_size, 3)# TODO: to device instead of cpu?
 
         im_output = np.concatenate([im_output, im], axis=1)
         im_output = im_output*255
 
         im_output = im_output.astype(np.uint8)
-        imwrite("result/%s/s%08d_grad.png" % (FLAGS.exp,step), im_output)
+        imwrite("result/%s/s%08d_grad.png" % (FLAGS.run_name,step), im_output)
 
-        im_neg = im_neg_tensor = im_neg.detach().cpu()
-        im_components = [im_components[i].detach().cpu() for i in range(len(im_components))]
+        im_neg = im_neg_tensor = im_neg.detach().cpu()# TODO: to device instead of cpu?
+        im_components = [im_components[i].detach().cpu() for i in range(len(im_components))]# TODO: to device instead of cpu?
         im_neg = torch.cat([im_neg] + im_components)
         im_neg = np.clip(im_neg, 0.0, 1.0)
         im_neg = make_grid(im_neg, nrow=int(im_neg.shape[0] / (FLAGS.components + 1))).permute(1, 2, 0)
         im_neg = im_neg.numpy()*255
 
         im_neg = im_neg.astype(np.uint8)
-        imwrite("result/%s/s%08d_gen.png" % (FLAGS.exp,step), im_neg)
+        imwrite("result/%s/s%08d_gen.png" % (FLAGS.run_name,step), im_neg)
 
         if FLAGS.components > 1:
-            im_neg_perm = im_neg_perm.detach().cpu()
+            im_neg_perm = im_neg_perm.detach().cpu()# TODO: to device instead of cpu?
             im_components_perm = []
             for i,im_component in enumerate(im_components):
                 im_components_perm.append(torch.cat([im_component[i:], im_component[:i]]))
@@ -304,18 +304,19 @@ def test(train_dataloader, models, FLAGS, step=0):
             im_neg_perm = make_grid(im_neg_perm, nrow=int(im_neg_perm.shape[0] / (FLAGS.components + 1))).permute(1, 2, 0)
             im_neg_perm = im_neg_perm.numpy()*255
             im_neg_perm = im_neg_perm.astype(np.uint8)
-            imwrite("result/%s/s%08d_gen_perm.png" % (FLAGS.exp,step), im_neg_perm)
+            imwrite("result/%s/s%08d_gen_perm.png" % (FLAGS.run_name,step), im_neg_perm)
 
-            im_neg_additional = im_neg_additional.detach().cpu()
-            for i in range(FLAGS.num_additional):
-                im_components.append(torch.roll(im_components[i], i + 1, 0))
+            im_neg_additional = im_neg_additional.detach().cpu()# TODO: to device instead of cpu?
+
+            # for i in range(FLAGS.num_additional):
+            #     im_components.append(torch.roll(im_components[i], i + 1, 0))
             im_neg_additional = torch.cat([im_neg_additional] + im_components)
             im_neg_additional = np.clip(im_neg_additional, 0.0, 1.0)
             im_neg_additional = make_grid(im_neg_additional, 
-                                nrow=int(im_neg_additional.shape[0] / (FLAGS.components + FLAGS.num_additional + 1))).permute(1, 2, 0)
+                                nrow=int(im_neg_additional.shape[0] / (FLAGS.components +  1))).permute(1, 2, 0)
             im_neg_additional = im_neg_additional.numpy()*255
             im_neg_additional = im_neg_additional.astype(np.uint8)
-            imwrite("result/%s/s%08d_gen_add.png" % (FLAGS.exp,step), im_neg_additional)
+            imwrite("result/%s/s%08d_gen_add.png" % (FLAGS.run_name,step), im_neg_additional)
 
             print('test at step %d done!' % step)
         break
@@ -323,38 +324,36 @@ def test(train_dataloader, models, FLAGS, step=0):
     [model.train() for model in models]
 
 
-def train(train_dataloader, test_dataloader, logger, models, optimizers, FLAGS, logdir, rank_idx):
+def train(train_dataloader, test_dataloader, models, optimizers, FLAGS, logdir, rank_idx):
     config_path = os.path.join(parent_dir, 'src/config/comet_config.yml')
     config = load_config(config_path)
 
-    it = FLAGS.resume_iter
+    it = 0
     [optimizer.zero_grad() for optimizer in optimizers]
 
-    dev = torch.device("cpu")
+    if torch.cuda.is_available():
+        dev = torch.device("cuda")
+    else:
+        dev = torch.device("cpu")
 
     # Use LPIPS loss for CelebA-HQ 128x128
-    if FLAGS.dataset == "celebahq_128":
-        #import lpips # uncomment for celebahq_128
-        loss_fn_vgg = lpips.LPIPS(net='vgg').cuda()
+    # if FLAGS.dataset == "celebahq_128":
+    #     #import lpips # uncomment for celebahq_128
+    #     loss_fn_vgg = lpips.LPIPS(net='vgg').cuda()
 
     for epoch in tqdm(range(config.num_epoch)):
         for im, idx in train_dataloader:
 
             im = im.to(dev)
             idx = idx.to(dev)
-            im_orig = im
-
-            random_idx = random.randint(0, FLAGS.ensembles - 1)
-            random_idx = 0
 
             latent = models[0].embed_latent(im)
 
             latents = torch.chunk(latent, FLAGS.components, dim=1)
 
             im_neg = torch.rand_like(im)
-            im_neg_init = im_neg
 
-            im_neg, im_negs, im_grad, _ = gen_image(latents, FLAGS, models, im_neg, im, FLAGS.num_steps, FLAGS.sample)
+            im_neg, im_negs, im_grad, _ = gen_image(latents, FLAGS, models, im_neg, im, FLAGS.steps)
 
             im_negs = torch.stack(im_negs, dim=1)
 
@@ -385,14 +384,14 @@ def train(train_dataloader, test_dataloader, logger, models, optimizers, FLAGS, 
             config.NeptuneLogger.log_metric("im_loss", im_loss, step=int(it))
             config.NeptuneLogger.log_metric("ml_loss", ml_loss, step=int(it))
             config.NeptuneLogger.log_metric("loss", loss, step=int(it))
-            if FLAGS.gpus > 1:
-                average_gradients(models)
+            # if FLAGS.gpus > 1:
+            #     average_gradients(models)
 
             [torch.nn.utils.clip_grad_norm_(model.parameters(), 10.0) for model in models]
             [optimizer.step() for optimizer in optimizers]
             [optimizer.zero_grad() for optimizer in optimizers]
 
-            if it % FLAGS.log_interval == 0 and rank_idx == 0:
+            if it % 2 == 0 and rank_idx == 0:
                 loss = loss.item()
                 energy_pos_mean = energy_pos.mean().item()
                 energy_neg_mean = energy_neg.mean().item()
@@ -417,15 +416,14 @@ def train(train_dataloader, test_dataloader, logger, models, optimizers, FLAGS, 
 
                 for k, v in kvs.items():
                     string += "%s: %.6f  " % (k,v)
-                    logger.add_scalar(k, v, it)
+                    # logger.add_scalar(k, v, it)
 
                 print(string)
 
-            if it % FLAGS.save_interval == 0 and rank_idx == 0:
+            if it % 100 == 0:  # Log every 1000 steps
                 model_path = osp.join(logdir, "model_{}.pth".format(it))
 
-
-                ckpt = {'FLAGS': FLAGS}
+                ckpt = {'FLAGS': FLAGS.to_dict()}
 
                 for i in range(len(models)):
                     ckpt['model_state_dict_{}'.format(i)] = models[i].state_dict()
@@ -433,9 +431,19 @@ def train(train_dataloader, test_dataloader, logger, models, optimizers, FLAGS, 
                 for i in range(len(optimizers)):
                     ckpt['optimizer_state_dict_{}'.format(i)] = optimizers[i].state_dict()
 
+                # Save the model checkpoint
                 torch.save(ckpt, model_path)
-                with tempfile.TemporaryDirectory() as tempdir:
-                    config.NeptuneLogger.log_model(file_path=osp.join(tempdir, "model_{}.pth".format(it)), file_name="model_it{}".format(it))
+
+                # Log the model to Neptune
+                try:
+                    if osp.exists(model_path):
+                        config.NeptuneLogger.log_model(model_path, f"models_{it}.pth")
+                        print(f"Model logged to Neptune: models_{it}.pth")
+                    else:
+                        print(f"Model file not found: {model_path}")
+                except Exception as e:
+                    print(f"Failed to log model to Neptune: {e}")
+
                 print("Saving model in directory....")
                 print('run test')
 
@@ -446,13 +454,14 @@ def train(train_dataloader, test_dataloader, logger, models, optimizers, FLAGS, 
 
 
 def main_single(rank, FLAGS):
-    rank_idx = FLAGS.node_rank * FLAGS.gpus + rank
-    world_size = FLAGS.nodes * FLAGS.gpus
+    print('RUnning main single')
+    rank_idx = 0
+    world_size = 0
 
 
-    if not os.path.exists('result/%s' % FLAGS.exp):
+    if not os.path.exists('result/%s' % FLAGS.run_name):
         try:
-            os.makedirs('result/%s' % FLAGS.exp)
+            os.makedirs('result/%s' % FLAGS.run_name)
         except:
             pass
 
@@ -466,6 +475,7 @@ def main_single(rank, FLAGS):
         dataset = Nvidia(FLAGS)
         test_dataset = dataset
     elif FLAGS.dataset == "clevr":
+        print(FLAGS.dataset)
         dataset = Clevr(FLAGS)
         test_dataset = dataset
     elif FLAGS.dataset == "clevr_lighting":
@@ -507,97 +517,102 @@ def main_single(rank, FLAGS):
 
     if torch.cuda.is_available():
         torch.cuda.set_device(rank)
-    device = torch.device('cpu')
+        device = torch.device("cuda")
+    else:
+        device = torch.device('cpu')
 
-    logdir = osp.join(FLAGS.logdir, FLAGS.exp)
+    logdir = osp.join('result', FLAGS.run_name)
     FLAGS_OLD = FLAGS
 
-    if FLAGS.resume_iter != 0:
-        logging.info(f'A pretrained model is loaded since resume_iter = {FLAGS.resume_iter}')
-        model_path = osp.join(logdir, "model_{}.pth".format(FLAGS.resume_iter))
+    # if FLAGS.resume_iter != 0:
+    #     logging.info(f'A pretrained model is loaded since resume_iter = {FLAGS.resume_iter}')
+    #     model_path = osp.join(logdir, "model_{}.pth".format(FLAGS.resume_iter))
 
-        checkpoint = torch.load(model_path, map_location=torch.device('cpu'))
-        FLAGS = checkpoint['FLAGS']
+    #     checkpoint = torch.load(model_path, map_location=torch.device('cpu'))
+    #     FLAGS = checkpoint['FLAGS']
 
-        FLAGS.resume_iter = FLAGS_OLD.resume_iter
-        FLAGS.save_interval = FLAGS_OLD.save_interval
-        FLAGS.nodes = FLAGS_OLD.nodes
-        FLAGS.gpus = FLAGS_OLD.gpus
-        FLAGS.node_rank = FLAGS_OLD.node_rank
-        FLAGS.train = FLAGS_OLD.train
-        FLAGS.batch_size = FLAGS_OLD.batch_size
-        FLAGS.num_visuals = FLAGS_OLD.num_visuals
-        FLAGS.num_additional = FLAGS_OLD.num_additional
-        FLAGS.decoder = FLAGS_OLD.decoder
-        FLAGS.optimize_test = FLAGS_OLD.optimize_test
-        FLAGS.temporal = FLAGS_OLD.temporal
-        FLAGS.sim = FLAGS_OLD.sim
-        FLAGS.exp = FLAGS_OLD.exp
-        FLAGS.step_lr = FLAGS_OLD.step_lr
-        FLAGS.num_steps = FLAGS_OLD.num_steps
-        FLAGS.vae_beta = FLAGS_OLD.vae_beta
+    #     FLAGS.resume_iter = FLAGS_OLD.resume_iter
+    #     FLAGS.save_interval = FLAGS_OLD.save_interval
+    #     FLAGS.nodes = FLAGS_OLD.nodes
+    #     FLAGS.gpus = FLAGS_OLD.gpus
+    #     FLAGS.node_rank = FLAGS_OLD.node_rank
+    #     FLAGS.train = FLAGS_OLD.train
+    #     FLAGS.batch_size = FLAGS_OLD.batch_size
+    #     FLAGS.num_visuals = FLAGS_OLD.num_visuals
+    #     FLAGS.num_additional = FLAGS_OLD.num_additional
+    #     FLAGS.decoder = FLAGS_OLD.decoder
+    #     FLAGS.optimize_test = FLAGS_OLD.optimize_test
+    #     FLAGS.temporal = FLAGS_OLD.temporal
+    #     FLAGS.sim = FLAGS_OLD.sim
+    #     FLAGS.exp = FLAGS_OLD.exp
+    #     FLAGS.step_lr = FLAGS_OLD.step_lr
+    #     FLAGS.steps = FLAGS_OLD.steps
+    #     FLAGS.vae_beta = FLAGS_OLD.vae_beta
 
-        models, optimizers  = init_model(FLAGS, device, dataset)
-        state_dict = models[0].state_dict()
+    #     models, optimizers  = init_model(FLAGS, device, dataset)
+    #     state_dict = models[0].state_dict()
 
-        for i, (model, optimizer) in enumerate(zip(models, optimizers)):
-            model.load_state_dict(checkpoint['model_state_dict_{}'.format(i)], strict=False)
-            optimizer.load_state_dict(checkpoint['optimizer_state_dict_{}'.format(i)], strict=False)
+    #     for i, (model, optimizer) in enumerate(zip(models, optimizers)):
+    #         model.load_state_dict(checkpoint['model_state_dict_{}'.format(i)], strict=False)
+    #         optimizer.load_state_dict(checkpoint['optimizer_state_dict_{}'.format(i)], strict=False)
 
-    else:
-        models, optimizers = init_model(FLAGS, device, dataset)
+    # else:
+    models, optimizers = init_model(FLAGS, device, dataset)
 
-    if FLAGS.gpus > 1:
-        sync_model(models)
+    # if FLAGS.gpus > 1:
+    #     sync_model(models)
 
-    if FLAGS.dataset == "multidsprites":
-        train_dataloader = MultiDspritesLoader(FLAGS.batch_size)
-        test_dataloader = MultiDspritesLoader(FLAGS.batch_size)
-    elif FLAGS.dataset == "tetris":
-        train_dataloader = TetrominoesLoader(FLAGS.batch_size)
-        test_dataloader = TetrominoesLoader(FLAGS.batch_size)
-    else:
-        train_dataloader = DataLoader(dataset, num_workers=FLAGS.data_workers, batch_size=FLAGS.batch_size, shuffle=shuffle, pin_memory=False)
-        test_dataloader = DataLoader(test_dataset, num_workers=FLAGS.data_workers, batch_size=FLAGS.num_visuals, shuffle=True, pin_memory=False, drop_last=True)
+    # if FLAGS.dataset == "multidsprites":
+    #     train_dataloader = MultiDspritesLoader(FLAGS.batch_size)
+    #     test_dataloader = MultiDspritesLoader(FLAGS.batch_size)
+    # elif FLAGS.dataset == "tetris":
+    #     train_dataloader = TetrominoesLoader(FLAGS.batch_size)
+    #     test_dataloader = TetrominoesLoader(FLAGS.batch_size)
+    # else:
+    print(FLAGS.steps * FLAGS.batch_size)
+    random_sampler = RandomSampler(dataset, replacement=True, num_samples=FLAGS.steps * FLAGS.batch_size) 
+    train_dataloader = DataLoader(dataset, num_workers=FLAGS.data_workers, batch_size=FLAGS.batch_size, sampler=random_sampler, pin_memory=False)
+    test_dataloader = DataLoader(test_dataset, num_workers=FLAGS.data_workers, batch_size=FLAGS.batch_size, shuffle=True, pin_memory=False, drop_last=True)
 
     print(f'Train dataloader has {len(train_dataloader)} batches')
     print(f'Test dataloader has {len(test_dataloader)} batches')
 
-    logger = SummaryWriter(logdir)
-    it = FLAGS.resume_iter
+    # logger = SummaryWriter(logdir)
+    # it = FLAGS.resume_iter
 
-    print(f'FLAGS.train: {FLAGS.train}')
     logging.info(f'FLAGS: {FLAGS}')
-    if FLAGS.train:
+    if FLAGS.test_run == False:
         models = [model.train() for model in models]
     else:
         models = [model.eval() for model in models]
 
-    if FLAGS.train:
-        train(train_dataloader, test_dataloader, logger, models, optimizers, FLAGS, logdir, rank_idx)
+    if FLAGS.test_run == False:
+        train(train_dataloader, test_dataloader, models, optimizers, FLAGS, logdir, rank_idx)
 
-    elif FLAGS.optimize_test:
-        test_optimize(test_dataloader, models, FLAGS, step=FLAGS.resume_iter)
+    # elif FLAGS.optimize_test:
+    #     test_optimize(test_dataloader, models, FLAGS, step=FLAGS.resume_iter)
     else:
-        test(test_dataloader, models, FLAGS, step=FLAGS.resume_iter)
+        test(test_dataloader, models, FLAGS, step=0)
 
 
 def main():
-    FLAGS = parser.parse_args()
+    config_path = os.path.join(parent_dir, 'src/config/comet_config.yml')
+    FLAGS = load_config(config_path)
     FLAGS.ensembles = FLAGS.components
     FLAGS.tie_weight = True
     FLAGS.sample = True
 
-    logdir = osp.join(FLAGS.logdir, FLAGS.exp)
+    logdir = 'results/'
 
     if not osp.exists(logdir):
         os.makedirs(logdir)
 
-    if FLAGS.gpus > 1:
-        mp.spawn(main_single, nprocs=FLAGS.gpus, args=(FLAGS,))
-    else:
-        main_single(0, FLAGS)
+    # if FLAGS.gpus > 1:
+    #     mp.spawn(main_single, nprocs=FLAGS.gpus, args=(FLAGS,))
+    # else:
+    main_single(0, FLAGS)
 
 
 if __name__ == "__main__":
+    print('Running main')
     main()

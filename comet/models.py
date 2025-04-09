@@ -513,7 +513,8 @@ class LatentEBM(nn.Module):
         self.x_grid, self.y_grid = torch.meshgrid(x, y)
 
     def embed_latent(self, im):
-        x = self.embed_conv1(im)
+        self.to(im.device)
+        x = self.embed_conv1(im) # 
         x = F.relu(x)
         x = self.embed_layer1(x)
         x = self.embed_layer2(x)

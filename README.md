@@ -37,7 +37,7 @@ export PYTHONPATH="."
 If you wish to train a new model, you can connect to the HPC (if you have access) and run the following command:
 
 ```bash
-bsub path/to/bsubs/scrupts
+bsub < path/to/bsubs/scrupts
 ```
 
 When you have queued the job, there a few good-to-know commands:
