@@ -61,9 +61,9 @@ def gen_image(latents, config, models, im_neg, im, steps = 10, create_graph=True
                 if idx is not None and idx != j:
                     pass
                 else:
-                    ix = j % config.components
                     energy = models[j % config.components].forward(im_neg, latents[j]) + energy
 
+            # this autograd causes memory issues, the tensor in comet models cant be saved
             im_grad, = torch.autograd.grad([energy.sum()], [im_neg], create_graph=create_graph)
 
             im_neg = im_neg - config.step_lr * im_grad
