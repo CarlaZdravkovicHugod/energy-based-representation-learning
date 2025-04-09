@@ -15,7 +15,7 @@ latent_dim: 64
 pos_embed: false
 recurrent_model: false
 dataset: "2DMRI"
-steps: 10000
+steps: 100000
 decoder: false
 channels: 1
 model: 'LatentEBM128' # or 'LatentEBM'
