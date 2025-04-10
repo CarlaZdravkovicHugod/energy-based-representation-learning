@@ -1,10 +1,7 @@
 from dataclasses import dataclass
 import os
-import torch
 import yaml
 from dotenv import load_dotenv
-
-from src.utils.neptune_logger import NeptuneLogger
 
 load_dotenv()
 

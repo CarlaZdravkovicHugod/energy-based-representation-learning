@@ -12,6 +12,7 @@ from dataloader import Clevr, BrainDataset, MRI2D
 import threading
 from dataclasses import asdict
 from src.utils.neptune_logger import NeptuneLogger
+from torchmetrics.functional.image.ssim import structural_similarity_index_measure as ssim
 
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(parent_dir)
@@ -20,8 +21,6 @@ from src.config.load_config import load_config, Config
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s')
 
 logging.info("Importing log this")
-
-# TODO: try using latentEBM128
 
 def gen_image(latents, config, models, im_neg, im, steps = 10, create_graph=True, idx=None):
     # TODO: the samples were used through langevin, where did they go?
@@ -92,7 +91,7 @@ def init_model(config, dataset):
 
 
 def train(train_dataloader, models, optimizers, schedulers, config):
-    # Remove or modify this line that's causing the error
+    # Log the configuration
     neptune_logger.log_config_dict(asdict(config))
 
     if torch.cuda.is_available():
@@ -100,32 +99,51 @@ def train(train_dataloader, models, optimizers, schedulers, config):
     else:
         dev = torch.device("cpu")
 
+    # Define weights for the combined loss
+    ssim_weight = 0.1  # Weight for SSIM loss
+    reconstruction_weight = 1.0  # Weight for reconstruction loss
+
     for it, (im, idx) in tqdm(enumerate(train_dataloader), total=config.steps):
-        im = im.to(dev) # 8, 3, 64, 64
+        im = im.to(dev)  # 8, 3, 64, 64
         idx = idx.to(dev)
 
+        # Generate latent representations and images
         latent = models[0].embed_latent(im)
         latents = torch.chunk(latent, config.components, dim=1)
         im_neg = torch.rand_like(im)
         im_neg, im_negs, _, _ = gen_image(latents, config, models, im_neg, im)
         im_negs = torch.stack(im_negs, dim=1)
+
+        # Compute reconstruction loss (L2 loss)
         im_loss = torch.pow(im_negs[:, -1:] - im[:, None], 2).mean()
-        loss = im_loss
 
-        neptune_logger.log_metric("loss", loss, step=int(it))
-        # get_last_lr(); since ReduceLROnPlateau is not inherited from _LRScheduler this function is not defined
+        # Compute SSIM loss
+        ssim_value = ssim(im_negs[:, -1], im, data_range=1.0)  # Assuming images are normalized to [0, 1]
+        ssim_loss = 1 - ssim_value  # Convert SSIM to a loss (lower is better)
+
+        # Combine the losses
+        combined_loss = reconstruction_weight * im_loss + ssim_weight * ssim_loss
+
+        # Log metrics
+        logging.info(f"Iteration {it}: Loss: {combined_loss.item()}, Reconstruction Loss: {im_loss.item()}, SSIM Loss: {ssim_loss.item()}")
+        neptune_logger.log_metric("loss", im_loss.item(), step=int(it))
+        neptune_logger.log_metric("ssim", ssim_loss.item(), step=int(it))
+        neptune_logger.log_metric("combined", combined_loss.item(), step=int(it))
         neptune_logger.log_metric("scheduler_lr", optimizers[0].param_groups[0]['lr'], step=int(it))
-            
-        loss.backward()
 
+        # Backpropagation
+        combined_loss.backward()
+
+        # Gradient clipping and optimizer step
         [torch.nn.utils.clip_grad_norm_(model.parameters(), 10.0) for model in models]
         [optimizer.step() for optimizer in optimizers]
         [optimizer.zero_grad() for optimizer in optimizers]
 
-        [scheduler.step(loss) for scheduler in schedulers]
+        # Scheduler step
+        [scheduler.step(combined_loss) for scheduler in schedulers]
 
+        # Save model checkpoints periodically
         if it % 100 == 0:
-            
             models_copy = [model.state_dict() for model in models]
             torch.save(models_copy, f"models.pth")
             neptune_logger.log_model(f"models.pth", f"models_{it}.pth")
