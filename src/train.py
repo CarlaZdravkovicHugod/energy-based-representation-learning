@@ -109,7 +109,7 @@ def train(train_dataloader, models, optimizers, schedulers, config):
 
         optimizers[0].zero_grad()
 
-        with autocast(device_type='cuda'):  # Updated autocast usage
+        with autocast('cuda'):  # Updated autocast usage
             latent = models[0].embed_latent(im)
             latents = torch.chunk(latent, config.components, dim=1)
             im_neg = torch.rand_like(im)
