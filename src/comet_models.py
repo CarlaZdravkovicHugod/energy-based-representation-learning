@@ -392,6 +392,7 @@ class LatentEBM128(nn.Module):
         return output
 
     def forward(self, x, latent):
+        logging.info(f'Input feature map size: {x.shape()}')
 
         if self.pos_embed:
             b = x.size(0)
@@ -409,6 +410,7 @@ class LatentEBM128(nn.Module):
             inter = torch.cat([inter, pos_inter], dim=1)
 
         x = self.layer_encode(inter, latent)
+        logging.info(f"After layer_encode feature map size: {x.shape}")
         x = self.layer1(x, latent)
 
         x = self.layer2(x, latent)
@@ -419,6 +421,7 @@ class LatentEBM128(nn.Module):
         x = x.view(x.size(0), -1)
 
         energy = self.energy_map(x)
+        logging.info(f"Final energy output shape: {energy.shape}")
 
         return energy
 
