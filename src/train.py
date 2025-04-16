@@ -22,7 +22,6 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 logging.info("Importing log this")
 
-# TODO: try using latentEBM128
 
 def gen_image(latents, config, models, im_neg, im, steps = 10, create_graph=True, idx=None):
     # TODO: the samples were used through langevin, where did they go?
@@ -110,7 +109,7 @@ def train(train_dataloader, models, optimizers, schedulers, config):
 
         optimizers[0].zero_grad()
 
-        with autocast():  # Enable mixed precision
+        with autocast(device_type='cuda'):  # Updated autocast usage
             latent = models[0].embed_latent(im)
             latents = torch.chunk(latent, config.components, dim=1)
             im_neg = torch.rand_like(im)
