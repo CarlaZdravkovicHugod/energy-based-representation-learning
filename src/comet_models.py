@@ -269,11 +269,11 @@ class LatentEBM128(nn.Module):
         self.pos_embed = args.pos_embed
 
         if self.pos_embed:
-            self.conv1 = nn.Conv2d(3, filter_dim // 2, kernel_size=3, stride=1, padding=1, bias=True)
+            self.conv1 = nn.Conv2d(args.channels, filter_dim // 2, kernel_size=3, stride=1, padding=1, bias=True)
             self.conv1_embed = nn.Conv2d(2, filter_dim // 2, kernel_size=3, stride=1, padding=1, bias=True)
         else:
             self.conv1 = nn.Conv2d(args.channels, filter_dim // 4, kernel_size=3, stride=1, padding=1, bias=True)
-        self.avg_pool = nn.AvgPool2d(3, stride=2, padding=1)
+        self.avg_pool = nn.AvgPool2d(args.channels, stride=2, padding=1)
 
         self.gain = nn.Linear(args.latent_dim, filter_dim // 4)
         self.bias = nn.Linear(args.latent_dim, filter_dim // 4)
@@ -284,6 +284,11 @@ class LatentEBM128(nn.Module):
             self.im_size = 35
         else:
             self.im_size = 64
+
+        # reduce dimensions faster than currently
+        # reduce features in first layer (memoery error)
+        # pooling between blocks - consider
+        # feature map size at encode and decode
 
         self.layer_encode = CondResBlock(filters=filter_dim//4, latent_dim=latent_dim, rescale=True)
         self.layer1 = CondResBlock(filters=filter_dim//2, latent_dim=latent_dim, rescale=True)
