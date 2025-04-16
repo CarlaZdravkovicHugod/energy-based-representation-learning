@@ -12,6 +12,7 @@ from dataloader import Clevr, BrainDataset, MRI2D
 import threading
 from dataclasses import asdict
 from src.utils.neptune_logger import NeptuneLogger
+from torch.cuda.amp import autocast, GradScaler
 
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(parent_dir)
@@ -92,7 +93,7 @@ def init_model(config, dataset):
 
 
 def train(train_dataloader, models, optimizers, schedulers, config):
-    # Remove or modify this line that's causing the error
+    # Log the configuration
     neptune_logger.log_config_dict(asdict(config))
 
     if torch.cuda.is_available():
@@ -100,32 +101,40 @@ def train(train_dataloader, models, optimizers, schedulers, config):
     else:
         dev = torch.device("cpu")
 
+    # Initialize GradScaler for mixed precision
+    scaler = GradScaler()
+
     for it, (im, idx) in tqdm(enumerate(train_dataloader), total=config.steps):
-        im = im.to(dev) # 8, 3, 64, 64
+        im = im.to(dev)  # 8, 3, 64, 64
         idx = idx.to(dev)
 
-        latent = models[0].embed_latent(im)
-        latents = torch.chunk(latent, config.components, dim=1)
-        im_neg = torch.rand_like(im)
-        im_neg, im_negs, _, _ = gen_image(latents, config, models, im_neg, im)
-        im_negs = torch.stack(im_negs, dim=1)
-        im_loss = torch.pow(im_negs[:, -1:] - im[:, None], 2).mean()
-        loss = im_loss
+        optimizers[0].zero_grad()
 
-        neptune_logger.log_metric("loss", loss, step=int(it))
-        # get_last_lr(); since ReduceLROnPlateau is not inherited from _LRScheduler this function is not defined
+        with autocast():  # Enable mixed precision
+            latent = models[0].embed_latent(im)
+            latents = torch.chunk(latent, config.components, dim=1)
+            im_neg = torch.rand_like(im)
+            im_neg, im_negs, _, _ = gen_image(latents, config, models, im_neg, im)
+            im_negs = torch.stack(im_negs, dim=1)
+            im_loss = torch.pow(im_negs[:, -1:] - im[:, None], 2).mean()
+            loss = im_loss
+
+        # Log metrics
+        neptune_logger.log_metric("loss", loss.item(), step=int(it))
         neptune_logger.log_metric("scheduler_lr", optimizers[0].param_groups[0]['lr'], step=int(it))
-            
-        loss.backward()
 
-        [torch.nn.utils.clip_grad_norm_(model.parameters(), 10.0) for model in models]
-        [optimizer.step() for optimizer in optimizers]
-        [optimizer.zero_grad() for optimizer in optimizers]
+        # Backpropagation with GradScaler
+        scaler.scale(loss).backward()
 
+        # Optimizer step with GradScaler
+        scaler.step(optimizers[0])
+        scaler.update()
+
+        # Scheduler step
         [scheduler.step(loss) for scheduler in schedulers]
 
+        # Save model checkpoints periodically
         if it % 100 == 0:
-            
             models_copy = [model.state_dict() for model in models]
             torch.save(models_copy, f"models.pth")
             neptune_logger.log_model(f"models.pth", f"models_{it}.pth")
