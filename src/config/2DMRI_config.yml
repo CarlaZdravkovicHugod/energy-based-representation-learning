@@ -5,7 +5,7 @@ data_workers: 0
 shuffle_dataset: true
 num_epoch: 11
 lr: 0.0001
-step_lr: 500.0
+step_lr: 100.0
 components: 9
 ensembles: 10
 data_path: "data/*.npy"
