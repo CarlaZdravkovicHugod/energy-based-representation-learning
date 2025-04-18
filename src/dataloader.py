@@ -102,17 +102,29 @@ class MRI2D(data.Dataset):
         sample = np.load(npy_path)
     
         sample = (sample - sample.min()) / (sample.max() - sample.min())
-        sample = F.pad(torch.tensor(sample), (0, 0, 256-sample.shape[0], 0))
-        sample = sample.unsqueeze(0) # add channel dimension explicitly
+        # sample = F.pad(torch.tensor(sample), (0, 0, 256-sample.shape[0], 0))
+        sample = torch.tensor(sample).unsqueeze(0) # add channel dimension explicitly
         
-        # TODO: consider removing black row
         return sample, idx
 
-
 if __name__ == "__main__":
-    d3 = MRI2D('/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/data/*.npy')
+    d3 = MRI2D(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'data', '*.py')))
     item = d3.__getitem__(0)
     print(item[0].shape)
     print(len(d3))
+
+    org_img = np.load(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'data', 'T1w_sub-0001_x-5.npy')))
+
+    plt.figure(figsize=(10, 10))
+    plt.subplot(1, 2, 1)
+    plt.imshow(item[0][0].numpy(), cmap='gray')
+    plt.axis('off')
+    plt.title('Sample from Dataloader')
+    plt.subplot(1, 2, 2)
+    plt.imshow(org_img, cmap='gray')
+    plt.axis('off')
+    plt.title('Original Image')
+    plt.tight_layout()
+    plt.show()
     # this has 2820 files
     # all the values in the tensors are really large, ranges from -90 to 3000

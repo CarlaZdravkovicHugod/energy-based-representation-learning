@@ -7,11 +7,12 @@ from torch.utils.data import DataLoader, RandomSampler
 import argparse
 import logging
 from tqdm import tqdm
-from src.comet_models import LatentEBM
+from src.comet_models import LatentEBM, LatentEBM128
 from dataloader import Clevr, BrainDataset, MRI2D
 import threading
 from dataclasses import asdict
 from src.utils.neptune_logger import NeptuneLogger
+from torch.cuda.amp import autocast, GradScaler
 
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(parent_dir)
@@ -60,9 +61,9 @@ def gen_image(latents, config, models, im_neg, im, steps = 10, create_graph=True
                 if idx is not None and idx != j:
                     pass
                 else:
-                    ix = j % config.components
                     energy = models[j % config.components].forward(im_neg, latents[j]) + energy
 
+            # this autograd causes memory issues, the tensor in comet models cant be saved
             im_grad, = torch.autograd.grad([energy.sum()], [im_neg], create_graph=create_graph)
 
             im_neg = im_neg - config.step_lr * im_grad
@@ -79,14 +80,19 @@ def gen_image(latents, config, models, im_neg, im, steps = 10, create_graph=True
 
 def init_model(config, dataset):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    models = [LatentEBM(config, dataset).to(device) for _ in range(config.ensembles)] # TODO? enseblemes should be == components
+    if config.model == 'LatentEBM':
+        models = [LatentEBM(config, dataset).to(device) for _ in range(config.ensembles)]
+    else:
+        models = [LatentEBM128(config, dataset).to(device) for _ in range(config.ensembles)]
+    # TODO? enseblemes should be == components
+    # TODO: we should make some runs where we opitmize lr, steps, batches etc.
     optimizers = [Adam(model.parameters(), lr=config.lr) for model in models]
     schedulers = [torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=200) for optimizer in optimizers]
     return models, optimizers, schedulers
 
 
 def train(train_dataloader, models, optimizers, schedulers, config):
-    # Remove or modify this line that's causing the error
+    # Log the configuration
     neptune_logger.log_config_dict(asdict(config))
 
     if torch.cuda.is_available():
@@ -94,31 +100,40 @@ def train(train_dataloader, models, optimizers, schedulers, config):
     else:
         dev = torch.device("cpu")
 
+    # Initialize GradScaler for mixed precision
+    scaler = GradScaler()
+
     for it, (im, idx) in tqdm(enumerate(train_dataloader), total=config.steps):
-        im = im.to(dev) # 8, 3, 64, 64
+        im = im.to(dev)  # 8, 3, 64, 64
         idx = idx.to(dev)
 
-        latent = models[0].embed_latent(im)
-        latents = torch.chunk(latent, config.components, dim=1)
-        im_neg = torch.rand_like(im)
-        im_neg, im_negs, _, _ = gen_image(latents, config, models, im_neg, im)
-        im_negs = torch.stack(im_negs, dim=1)
-        im_loss = torch.pow(im_negs[:, -1:] - im[:, None], 2).mean()
-        loss = im_loss
+        optimizers[0].zero_grad()
 
-        neptune_logger.log_metric("loss", loss, step=int(it))
-        neptune_logger.log_metric("scheduler_lr", schedulers[0].get_last_lr()[0], step=int(it))
-            
-        loss.backward()
+        with autocast():  # Updated autocast usage
+            latent = models[0].embed_latent(im)
+            latents = torch.chunk(latent, config.components, dim=1)
+            im_neg = torch.rand_like(im)
+            im_neg, im_negs, _, _ = gen_image(latents, config, models, im_neg, im)
+            im_negs = torch.stack(im_negs, dim=1)
+            im_loss = torch.pow(im_negs[:, -1:] - im[:, None], 2).mean()
+            loss = im_loss
 
-        [torch.nn.utils.clip_grad_norm_(model.parameters(), 10.0) for model in models]
-        [optimizer.step() for optimizer in optimizers]
-        [optimizer.zero_grad() for optimizer in optimizers]
+        # Log metrics
+        neptune_logger.log_metric("loss", loss.item(), step=int(it))
+        neptune_logger.log_metric("scheduler_lr", optimizers[0].param_groups[0]['lr'], step=int(it))
 
+        # Backpropagation with GradScaler
+        scaler.scale(loss).backward()
+
+        # Optimizer step with GradScaler
+        scaler.step(optimizers[0])
+        scaler.update()
+
+        # Scheduler step
         [scheduler.step(loss) for scheduler in schedulers]
 
+        # Save model checkpoints periodically
         if it % 100 == 0:
-            
             models_copy = [model.state_dict() for model in models]
             torch.save(models_copy, f"models.pth")
             neptune_logger.log_model(f"models.pth", f"models_{it}.pth")
@@ -163,7 +178,7 @@ def listen_for_exit():
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str, required=False, help="Path to config file", default='src/config/clevr_config.yml') # src/config/test.yml
+    parser.add_argument("--config", type=str, required=False, help="Path to config file", default='src/config/2DMRI_config.yml') # src/config/test.yml
     args = parser.parse_args()
 
     config = load_config(args.config)

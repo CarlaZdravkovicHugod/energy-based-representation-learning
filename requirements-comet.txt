@@ -62,7 +62,7 @@ tensorboard-data-server
 tensorflow
 termcolor
 tifffile
-torch
+torch==2.6.0
 torchvision
 traitlets
 typing_extensions

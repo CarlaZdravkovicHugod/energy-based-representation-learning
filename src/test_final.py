@@ -8,8 +8,10 @@ import logging
 from tqdm import tqdm
 from torch.utils.data import DataLoader, RandomSampler
 
+# Train AE to reconstruct
 
-def reconstruct_and_plot(config_path, dataset_type, model_type, checkpoint_path, num_steps=30, batch_size=12):
+
+def reconstruct_and_plot(config_path, dataset_type, model_type, checkpoint_path, num_steps, batch_size):
     """
     Test a model on a given dataset and visualize the results.
 
@@ -23,6 +25,7 @@ def reconstruct_and_plot(config_path, dataset_type, model_type, checkpoint_path,
     """
     # Load configuration
     config = load_config(config_path)
+    logging.info(f"Loaded config: {config}")
 
     # Initialize dataset
     if dataset_type == "MRI2D":
@@ -72,6 +75,7 @@ def reconstruct_and_plot(config_path, dataset_type, model_type, checkpoint_path,
     with get_writer(gif_path, mode="I", duration=0.13) as writer:  # `duration` sets the delay between frames in seconds
         for im_neg in im_negs:
             im_neg_np = im_neg[0].detach().cpu().numpy().transpose(1, 2, 0)
+            im_neg_np = im_neg_np.repeat(3, axis=-1)  # Convert all images to RGB
             writer.append_data((im_neg_np * 255).astype('uint8'))
 
     print(f"GIF saved at {gif_path}")
@@ -126,22 +130,22 @@ def gen_image(latents, FLAGS, models, im_neg, num_steps, idx=None):
 
 if __name__ == "__main__":
     # Clevr our code:
-    config_path="/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/src/config/clevr_config.yml"
-    dataset_type="Clevr"
-    model_type="LatentEBM128"
-    checkpoint_path="/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/src/models/clevr_on_ourde_code_models_51800.pth"
+    # config_path="/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/src/config/clevr_config.yml"
+    # dataset_type="Clevr"
+    # model_type="LatentEBM128"
+    # checkpoint_path="/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/src/models/clevr_on_ourde_code_models_51800.pth"
 
     # 2DMRI our model our data:
-    # config_path = '/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/src/config/2DMRI_config.yml'
-    # dataset_type = 'MRI2D'
-    # model_type = 'LatentEBM'
-    # checkpoint_path = '/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/models.pth'
+    config_path = '/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/src/config/2DMRI_config.yml'
+    dataset_type = 'MRI2D'
+    model_type = 'LatentEBM128'
+    checkpoint_path = '/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/src/models/MRI_22900.pth'
 
     reconstruct_and_plot(
         config_path,
         dataset_type,
         model_type,
         checkpoint_path,
-        num_steps=30,
+        num_steps=60,
         batch_size=12
     )

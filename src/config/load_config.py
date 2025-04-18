@@ -30,6 +30,7 @@ class Config:
     steps: int # TODO: determine optimal
     decoder: bool
     channels: int # number of channels in the input image
+    model: str # model to use, either 'LatentEBM' or 'LatentEBM128'
     
     def to_dict(self):
         copy = self.__dict__.copy()
