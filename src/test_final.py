@@ -71,7 +71,7 @@ def reconstruct_and_plot(config_path, dataset_type, model_type, checkpoint_path,
     plt.title("Original Image")
     plt.axis("off")
 
-    gif_path = f"src/videos/{dataset_type}.gif"
+    gif_path = f"src/videos/{dataset_type}_UN631.gif"
     with get_writer(gif_path, mode="I", duration=0.13) as writer:  # `duration` sets the delay between frames in seconds
         for im_neg in im_negs:
             im_neg_np = im_neg[0].detach().cpu().numpy().transpose(1, 2, 0)
@@ -97,7 +97,7 @@ def reconstruct_and_plot(config_path, dataset_type, model_type, checkpoint_path,
         plt.tight_layout()
 
     # save image:
-    plt.savefig(f"src/videos/{dataset_type}_reconstructed.png")
+    plt.savefig(f"src/videos/{dataset_type}_reconstructed_UN631.png")
     plt.show()
 
 
@@ -139,7 +139,7 @@ if __name__ == "__main__":
     config_path = '/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/src/config/2DMRI_config.yml'
     dataset_type = 'MRI2D'
     model_type = 'LatentEBM128'
-    checkpoint_path = '/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/src/models/MRI_22900.pth'
+    checkpoint_path = '/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/src/models/models_UN651_10100.pth'
 
     reconstruct_and_plot(
         config_path,
