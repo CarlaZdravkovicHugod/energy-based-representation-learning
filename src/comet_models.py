@@ -445,10 +445,11 @@ class DoubleConv(nn.Sequential):
         )
 
 class UNetAutoencoder(nn.Module):
-    def __init__(self, base_ch: int = 32):
+    def __init__(self, in_ch: int = 1, out_ch: int = 1, base_ch: int = 32):
         super().__init__()
         # Encoder
-        self.inc   = DoubleConv(1, base_ch)
+        self.base_ch = base_ch
+        self.inc   = DoubleConv(in_ch, base_ch)
         self.down1 = nn.Sequential(nn.MaxPool2d(2), DoubleConv(base_ch, base_ch*2))
         self.down2 = nn.Sequential(nn.MaxPool2d(2), DoubleConv(base_ch*2, base_ch*4))
         self.down3 = nn.Sequential(nn.MaxPool2d(2), DoubleConv(base_ch*4, base_ch*8))
@@ -462,7 +463,7 @@ class UNetAutoencoder(nn.Module):
         self.dec3 = DoubleConv(base_ch*4, base_ch)
         self.up4 = nn.ConvTranspose2d(base_ch, base_ch, 2, stride=2)
         self.dec4 = DoubleConv(base_ch*2, base_ch)
-        self.outc = nn.Conv2d(base_ch, 1, 1)
+        self.outc = nn.Conv2d(base_ch, out_ch, 1)
         self.act  = nn.Sigmoid()
 
     def encode(self, x):               
@@ -569,9 +570,12 @@ class LatentEBM(nn.Module):
             self.embed_fc1 = nn.Linear(filter_dim, filter_dim) # TODO: out_shape
             self.embed_fc2 = nn.Linear(filter_dim, latent_dim_expand)
 
-        self.autoencoder = UNetAutoencoder()
-        self.ae_gap      = nn.AdaptiveAvgPool2d(1)          # → (B,256,1,1)
-        self.ae_proj     = nn.Linear(32*8, filter_dim) # 256→64
+        self.autoencoder = UNetAutoencoder(
+            in_ch=args.channels,
+            out_ch=args.channels)
+        ae_feat_dim      = self.autoencoder.base_ch * 8
+        self.ae_gap      = nn.AdaptiveAvgPool2d(1)
+        self.ae_proj     = nn.Linear(ae_feat_dim, filter_dim)
 
         self.init_grid()
 

@@ -29,9 +29,9 @@ def mse_psnr(x, y):
     mse = F.mse_loss(x, y).item()
     return mse, 20 * math.log10(1. / math.sqrt(mse + 1e-12))
 
-ssim_loss_fn = SSIM(n_channels=1).cuda() if torch.cuda.is_available() else SSIM(n_channels=1)
-
-
+def get_ssim(nc):
+    ssim = SSIM(n_channels=nc)
+    return ssim.cuda() if torch.cuda.is_available() else ssim
 
 def gen_image(latents, config, models, im_neg, im, steps = 10, create_graph=True, idx=None):
     # TODO: the samples were used through langevin, where did they go?
@@ -123,8 +123,8 @@ def train(train_dataloader, models, optimizers, schedulers, config):
             z, skips = models[0].autoencoder.encode(im)
             recon   = models[0].autoencoder.decode(z, skips)
 
-            mse = F.mse_loss(recon, im)
-            ssim = 1 - ssim_loss_fn(recon, im).mean()
+            mse  = F.mse_loss(recon, im)
+            ssim = 1 - get_ssim(config.channels)(recon, im).mean()
             ae_loss = (1 - config.ssim_weight) * mse + config.ssim_weight * ssim
 
             _, psnr = mse_psnr(recon.detach(), im)
@@ -133,7 +133,9 @@ def train(train_dataloader, models, optimizers, schedulers, config):
             # ---------------- EBM branch (unchanged) ---------------
             latent = models[0].embed_latent(im)   # vector latent
             latents = torch.chunk(latent, config.components, dim=1)
-            im_neg, im_negs, _, _ = gen_image(latents, config, models, im, steps = 10, create_graph=True, idx=None)
+            im_neg = torch.rand_like(im)
+            im_neg, im_negs, _, _ = gen_image(latents, config, models, im_neg, im)
+            im_negs = torch.stack(im_negs, dim=1)
             im_loss = torch.pow(im_negs[:, -1:] - im[:, None], 2).mean()
             loss = im_loss + config.ae_lambda * ae_loss
 
