@@ -426,6 +426,73 @@ class LatentEBM128(nn.Module):
         return energy
 
 
+def _align(x, ref):
+    """Bilinearly resize x so its H,W match ref (skip connection)."""
+    if x.shape[2:] != ref.shape[2:]:
+        x = F.interpolate(x, size=ref.shape[2:], mode="bilinear",
+                          align_corners=False)
+    return x
+
+class DoubleConv(nn.Sequential):
+    def __init__(self, in_ch, out_ch):
+        super().__init__(
+            nn.Conv2d(in_ch, out_ch, 3, padding=1, bias=False),
+            nn.BatchNorm2d(out_ch),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_ch, out_ch, 3, padding=1, bias=False),
+            nn.BatchNorm2d(out_ch),
+            nn.ReLU(inplace=True),
+        )
+
+class UNetAutoencoder(nn.Module):
+    def __init__(self, base_ch: int = 32):
+        super().__init__()
+        # Encoder
+        self.inc   = DoubleConv(1, base_ch)
+        self.down1 = nn.Sequential(nn.MaxPool2d(2), DoubleConv(base_ch, base_ch*2))
+        self.down2 = nn.Sequential(nn.MaxPool2d(2), DoubleConv(base_ch*2, base_ch*4))
+        self.down3 = nn.Sequential(nn.MaxPool2d(2), DoubleConv(base_ch*4, base_ch*8))
+        self.down4 = nn.Sequential(nn.MaxPool2d(2), DoubleConv(base_ch*8, base_ch*8))
+        # Decoder
+        self.up1 = nn.ConvTranspose2d(base_ch*8, base_ch*8, 2, stride=2)
+        self.dec1 = DoubleConv(base_ch*16, base_ch*4)
+        self.up2 = nn.ConvTranspose2d(base_ch*4, base_ch*4, 2, stride=2)
+        self.dec2 = DoubleConv(base_ch*8, base_ch*2)
+        self.up3 = nn.ConvTranspose2d(base_ch*2, base_ch*2, 2, stride=2)
+        self.dec3 = DoubleConv(base_ch*4, base_ch)
+        self.up4 = nn.ConvTranspose2d(base_ch, base_ch, 2, stride=2)
+        self.dec4 = DoubleConv(base_ch*2, base_ch)
+        self.outc = nn.Conv2d(base_ch, 1, 1)
+        self.act  = nn.Sigmoid()
+
+    def encode(self, x):               
+        """
+        Returns latent tensor from the bottleneck.
+        Shape: (B, base_ch*8, H/16, W/16)
+        """
+        # encoder 
+        x1 = self.inc(x)
+        x2 = self.down1(x1)
+        x3 = self.down2(x2)
+        x4 = self.down3(x3)
+        x5 = self.down4(x4)
+        return x5, (x1, x2, x3, x4)      # keep skips if caller wants them
+
+    def decode(self, z, skips):
+        """Decode a latent feature map back to image."""
+        x1, x2, x3, x4 = skips
+        x = _align(self.up1(z), x4); x = torch.cat([x, x4], 1); x = self.dec1(x)
+        x = _align(self.up2(x), x3); x = torch.cat([x, x3], 1); x = self.dec2(x)
+        x = _align(self.up3(x), x2); x = torch.cat([x, x2], 1); x = self.dec3(x)
+        x = _align(self.up4(x), x1); x = torch.cat([x, x1], 1); x = self.dec4(x)
+        return self.act(self.outc(x))
+
+    # keep the original signature for backward-compat
+    def forward(self, x):
+        z, _ = self.encode(x)
+        return z
+
+    
 class LatentEBM(nn.Module):
     '''This class defines the LatentEBM model used in the experiments.
     The model consists of a series of conditional residual blocks and a broadcast convolutional decoder.
@@ -502,6 +569,10 @@ class LatentEBM(nn.Module):
             self.embed_fc1 = nn.Linear(filter_dim, filter_dim) # TODO: out_shape
             self.embed_fc2 = nn.Linear(filter_dim, latent_dim_expand)
 
+        self.autoencoder = UNetAutoencoder()
+        self.ae_gap      = nn.AdaptiveAvgPool2d(1)          # → (B,256,1,1)
+        self.ae_proj     = nn.Linear(32*8, filter_dim) # 256→64
+
         self.init_grid()
 
     def gen_mask(self, latent):
@@ -513,54 +584,61 @@ class LatentEBM(nn.Module):
         self.x_grid, self.y_grid = torch.meshgrid(x, y)
 
     def embed_latent(self, im):
-        x = self.embed_conv1(im)
-        x = F.relu(x)
-        x = self.embed_layer1(x)
-        x = self.embed_layer2(x)
-        x = self.embed_layer3(x)
+        # x = self.embed_conv1(im)
+        # x = F.relu(x)
+        # x = self.embed_layer1(x)
+        # x = self.embed_layer2(x)
+        # x = self.embed_layer3(x)
 
-        if self.recurrent_model:
+        # if self.recurrent_model:
 
-            x = self.embed_layer4(x)
+        #     x = self.embed_layer4(x)
 
-            s = x.size()
-            x = x.view(s[0], s[1], -1)
-            x = x.permute(0, 2, 1).contiguous()
+        #     s = x.size()
+        #     x = x.view(s[0], s[1], -1)
+        #     x = x.permute(0, 2, 1).contiguous()
 
-            h = torch.zeros(1, im.size(0), self.filter_dim).to(x.device), torch.zeros(1, im.size(0), self.filter_dim).to(x.device)
-            outputs = []
+        #     h = torch.zeros(1, im.size(0), self.filter_dim).to(x.device), torch.zeros(1, im.size(0), self.filter_dim).to(x.device)
+        #     outputs = []
 
-            for i in range(self.components):
-                (sx, cx) = h
+        #     for i in range(self.components):
+        #         (sx, cx) = h
 
-                cx = cx.permute(1, 0, 2).contiguous()
-                context = torch.cat([cx.expand(-1, x.size(1), -1), x], dim=-1)
-                at_wt = self.at_fc2(F.relu(self.at_fc1(context)))
-                at_wt = F.softmax(at_wt, dim=1)
-                inp = (at_wt * context).sum(dim=1, keepdim=True)
-                inp = self.map_embed(inp)
-                inp = inp.permute(1, 0, 2).contiguous()
+        #         cx = cx.permute(1, 0, 2).contiguous()
+        #         context = torch.cat([cx.expand(-1, x.size(1), -1), x], dim=-1)
+        #         at_wt = self.at_fc2(F.relu(self.at_fc1(context)))
+        #         at_wt = F.softmax(at_wt, dim=1)
+        #         inp = (at_wt * context).sum(dim=1, keepdim=True)
+        #         inp = self.map_embed(inp)
+        #         inp = inp.permute(1, 0, 2).contiguous()
 
-                output, h = self.lstm(inp, h)
-                outputs.append(output)
+        #         output, h = self.lstm(inp, h)
+        #         outputs.append(output)
 
-            output = torch.cat(outputs, dim=0)
-            output = output.permute(1, 0, 2).contiguous()
-            output = self.embed_fc2(output)
-            s = output.size()
-            output = output.view(s[0], -1)
-        else:
-            if x.dim() == 4:
-                x = x.mean(dim=2).mean(dim=2)  # For 4D tensors
-            elif x.dim() == 3:
-                x = x.mean(dim=2)  # For 3D tensors
+        #     output = torch.cat(outputs, dim=0)
+        #     output = output.permute(1, 0, 2).contiguous()
+        #     output = self.embed_fc2(output)
+        #     s = output.size()
+        #     output = output.view(s[0], -1)
+        # else:
+        #     if x.dim() == 4:
+        #         x = x.mean(dim=2).mean(dim=2)  # For 4D tensors
+        #     elif x.dim() == 3:
+        #         x = x.mean(dim=2)  # For 3D tensors
 
-            x = x.view(x.size(0), -1) # shape of x should be 64x64 TODO: this might be wrong
-            output = self.embed_fc1(x) 
-            x = F.relu(self.embed_fc1(x))
-            output = self.embed_fc2(x)
+        #     x = x.view(x.size(0), -1) # shape of x should be 64x64 TODO: this might be wrong
+        #     output = self.embed_fc1(x) 
+        #     x = F.relu(self.embed_fc1(x))
+        #     output = self.embed_fc2(x)
 
-        return output
+        # 1. Encode with the new AE
+        z, _ = self.autoencoder.encode(im)        # (B,256,h,w)
+        # 2. Global-avg-pool → vector
+        z = self.ae_gap(z).flatten(1)             # (B,256)
+        # 3. Map to the size the rest of the model expects
+        z = F.relu(self.ae_proj(z))               # (B,64)
+        # 4. Produce the per-component latent vector(s)
+        return self.embed_fc2(z)                  # (B, latent_dim*components)
 
     def forward(self, x, latent):
 

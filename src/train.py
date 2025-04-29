@@ -13,6 +13,9 @@ import threading
 from dataclasses import asdict
 from src.utils.neptune_logger import NeptuneLogger
 from torch.cuda.amp import autocast, GradScaler
+from piqa import SSIM                                   # differentiable SSIM
+from torchvision.utils import make_grid, save_image
+import math
 
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(parent_dir)
@@ -21,6 +24,13 @@ from src.config.load_config import load_config, Config
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s')
 
 logging.info("Importing log this")
+
+def mse_psnr(x, y):
+    mse = F.mse_loss(x, y).item()
+    return mse, 20 * math.log10(1. / math.sqrt(mse + 1e-12))
+
+ssim_loss_fn = SSIM(n_channels=1).cuda() if torch.cuda.is_available() else SSIM(n_channels=1)
+
 
 
 def gen_image(latents, config, models, im_neg, im, steps = 10, create_graph=True, idx=None):
@@ -110,15 +120,27 @@ def train(train_dataloader, models, optimizers, schedulers, config):
         optimizers[0].zero_grad()
 
         with autocast():  # Updated autocast usage
-            latent = models[0].embed_latent(im)
+            z, skips = models[0].autoencoder.encode(im)
+            recon   = models[0].autoencoder.decode(z, skips)
+
+            mse = F.mse_loss(recon, im)
+            ssim = 1 - ssim_loss_fn(recon, im).mean()
+            ae_loss = (1 - config.ssim_weight) * mse + config.ssim_weight * ssim
+
+            _, psnr = mse_psnr(recon.detach(), im)
+            neptune_logger.log_metric("PSNR", psnr, step=int(it))
+
+            # ---------------- EBM branch (unchanged) ---------------
+            latent = models[0].embed_latent(im)   # vector latent
             latents = torch.chunk(latent, config.components, dim=1)
-            im_neg = torch.rand_like(im)
-            im_neg, im_negs, _, _ = gen_image(latents, config, models, im_neg, im)
-            im_negs = torch.stack(im_negs, dim=1)
+            im_neg, im_negs, _, _ = gen_image(latents, config, models, im, steps = 10, create_graph=True, idx=None)
             im_loss = torch.pow(im_negs[:, -1:] - im[:, None], 2).mean()
-            loss = im_loss
+            loss = im_loss + config.ae_lambda * ae_loss
+
+        neptune_logger.log_metric("ae_loss", ae_loss.item(), step=int(it))
 
         # Log metrics
+        neptune_logger.log_metric("im_loss", im_loss.item(), step=int(it))
         neptune_logger.log_metric("loss", loss.item(), step=int(it))
         neptune_logger.log_metric("scheduler_lr", optimizers[0].param_groups[0]['lr'], step=int(it))
 
@@ -132,11 +154,18 @@ def train(train_dataloader, models, optimizers, schedulers, config):
         # Scheduler step
         [scheduler.step(loss) for scheduler in schedulers]
 
-        # Save model checkpoints periodically
         if it % 100 == 0:
-            models_copy = [model.state_dict() for model in models]
-            torch.save(models_copy, f"models.pth")
-            neptune_logger.log_model(f"models.pth", f"models_{it}.pth")
+            # grid: originals | reconstructions
+            grid = make_grid(torch.cat([im[:8], recon[:8]], 0), nrow=8)
+            save_path = f"{config.run_dir}/epoch{it:06d}.png"
+            save_image(grid, save_path)
+            neptune_logger.log_image("recons", save_path, step=int(it))
+
+            torch.save({"it": it,
+                        "ae_state": models[0].autoencoder.state_dict(),
+                        "ebm_state": [m.state_dict() for m in models]},
+                        f"{config.run_dir}/best_model.pt")
+            neptune_logger.log_model(f"{config.run_dir}/best_model.pt", f"models_{it}.pth")
 
 
 def main(config: Config, neptune_logger: NeptuneLogger):

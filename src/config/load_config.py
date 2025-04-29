@@ -31,6 +31,9 @@ class Config:
     decoder: bool
     channels: int # number of channels in the input image
     model: str # model to use, either 'LatentEBM' or 'LatentEBM128'
+    ssim_weight: float # weight for the ssim loss
+    ae_lambda: float # weight for the ae loss
+    run_dir: str # directory to save the run
     
     def to_dict(self):
         copy = self.__dict__.copy()
