@@ -44,6 +44,27 @@ class NeptuneLogger:
     def stop(self):
         self.run.stop()
 
+    # ────────────────────────────────────────────────────────────────
+    # Images / figures
+    # ────────────────────────────────────────────────────────────────
+    def log_image(self, series_name: str, file_path: str, step: int | None = None):
+        """
+        Append an image (PNG/JPG) to a Neptune series.
+
+        Parameters
+        ----------
+        series_name : str   Neptune field, e.g. "reconstructions"
+        file_path   : str   Path to image on disk
+        step        : int   Optional x-axis step
+        """
+        from neptune.types import File
+        if step is not None:
+            self.run[series_name].append(File.as_image(file_path), step=step)
+        else:
+            self.run[series_name].append(File.as_image(file_path))
+        if self.test:
+            print(f"Logged image {file_path} → {series_name} at step {step}")
+
 if __name__ == "__main__":
     import os
     logger = NeptuneLogger(
