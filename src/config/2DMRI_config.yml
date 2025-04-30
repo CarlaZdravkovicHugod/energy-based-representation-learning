@@ -19,6 +19,8 @@ steps: 100000
 decoder: false
 channels: 1
 model: 'LatentEBM128' # or 'LatentEBM'
-
+ssim_weight: 0.20        # MSE↔SSIM mix
+ae_lambda: 1.0         # how strongly AE loss influences the joint loss
+run_dir: runs/autoencoder
 
 
