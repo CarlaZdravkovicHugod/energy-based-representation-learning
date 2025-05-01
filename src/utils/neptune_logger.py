@@ -44,9 +44,6 @@ class NeptuneLogger:
     def stop(self):
         self.run.stop()
 
-    # ────────────────────────────────────────────────────────────────
-    # Images / figures
-    # ────────────────────────────────────────────────────────────────
     def log_image(self, series_name: str, file_path: str, step: int = None):
         """
         Append an image (PNG/JPG) to a Neptune series.

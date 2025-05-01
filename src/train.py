@@ -16,6 +16,7 @@ from torch.cuda.amp import autocast, GradScaler
 from piqa import SSIM                                   # differentiable SSIM
 from torchvision.utils import make_grid, save_image
 import math
+from PIL import Image
 
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(parent_dir)
@@ -161,7 +162,8 @@ def train(train_dataloader, models, optimizers, schedulers, config):
             grid = make_grid(torch.cat([im[:8], recon[:8]], 0), nrow=8)
             save_path = f"{config.run_dir}/epoch{it:06d}.png"
             save_image(grid, save_path)
-            neptune_logger.log_image("recons", save_path, step=int(it))
+            im_pil = Image.open(save_path)
+            neptune_logger.log_image("recons", im_pil, step=int(it))
 
             torch.save({"it": it,
                         "ae_state": models[0].autoencoder.state_dict(),
