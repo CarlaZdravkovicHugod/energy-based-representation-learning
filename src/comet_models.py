@@ -332,6 +332,13 @@ class LatentEBM128(nn.Module):
             self.embed_fc1 = nn.Linear(filter_dim, filter_dim)
             self.embed_fc2 = nn.Linear(filter_dim, latent_dim_expand)
 
+        self.autoencoder = UNetAutoencoder(
+            in_ch=args.channels,
+            out_ch=args.channels)
+        ae_feat_dim      = self.autoencoder.base_ch * 8
+        self.ae_gap      = nn.AdaptiveAvgPool2d(1)
+        self.ae_proj     = nn.Linear(ae_feat_dim, filter_dim)
+
         self.init_grid()
 
     def gen_mask(self, latent):
@@ -343,53 +350,60 @@ class LatentEBM128(nn.Module):
         self.x_grid, self.y_grid = torch.meshgrid(x, y)
 
     def embed_latent(self, im):
-        x = self.embed_conv1(im)
-        x = F.relu(x)
-        x = self.embed_layer1(x)
-        x = self.embed_layer2(x)
-        x = self.embed_layer3(x)
+        # x = self.embed_conv1(im)
+        # x = F.relu(x)
+        # x = self.embed_layer1(x)
+        # x = self.embed_layer2(x)
+        # x = self.embed_layer3(x)
 
-        if self.recurrent_model:
+        # if self.recurrent_model:
 
-            #if self.dataset != "clevr":
-            x = self.embed_layer4(x)
+        #     #if self.dataset != "clevr":
+        #     x = self.embed_layer4(x)
 
-            s = x.size()
-            x = x.view(s[0], s[1], -1)
-            x = x.permute(0, 2, 1).contiguous()
-            pos_embed = self.pos_embedding
+        #     s = x.size()
+        #     x = x.view(s[0], s[1], -1)
+        #     x = x.permute(0, 2, 1).contiguous()
+        #     pos_embed = self.pos_embedding
 
-            # x = x + pos_embed[None, :, :]
-            h = torch.zeros(1, im.size(0), self.filter_dim).to(x.device), torch.zeros(1, im.size(0), self.filter_dim).to(x.device)
-            outputs = []
+        #     # x = x + pos_embed[None, :, :]
+        #     h = torch.zeros(1, im.size(0), self.filter_dim).to(x.device), torch.zeros(1, im.size(0), self.filter_dim).to(x.device)
+        #     outputs = []
 
-            for i in range(self.components):
-                (sx, cx) = h
+        #     for i in range(self.components):
+        #         (sx, cx) = h
 
-                cx = cx.permute(1, 0, 2).contiguous()
-                context = torch.cat([cx.expand(-1, x.size(1), -1), x], dim=-1)
-                at_wt = self.at_fc2(F.relu(self.at_fc1(context)))
-                at_wt = F.softmax(at_wt, dim=1)
-                inp = (at_wt * context).sum(dim=1, keepdim=True)
-                inp = self.map_embed(inp)
-                inp = inp.permute(1, 0, 2).contiguous()
+        #         cx = cx.permute(1, 0, 2).contiguous()
+        #         context = torch.cat([cx.expand(-1, x.size(1), -1), x], dim=-1)
+        #         at_wt = self.at_fc2(F.relu(self.at_fc1(context)))
+        #         at_wt = F.softmax(at_wt, dim=1)
+        #         inp = (at_wt * context).sum(dim=1, keepdim=True)
+        #         inp = self.map_embed(inp)
+        #         inp = inp.permute(1, 0, 2).contiguous()
 
-                output, h = self.lstm(inp, h)
-                outputs.append(output)
+        #         output, h = self.lstm(inp, h)
+        #         outputs.append(output)
 
-            output = torch.cat(outputs, dim=0)
-            output = output.permute(1, 0, 2).contiguous()
-            output = self.embed_fc2(output)
-            s = output.size()
-            output = output.view(s[0], -1)
-        else:
-            x = x.mean(dim=2).mean(dim=2)
+        #     output = torch.cat(outputs, dim=0)
+        #     output = output.permute(1, 0, 2).contiguous()
+        #     output = self.embed_fc2(output)
+        #     s = output.size()
+        #     output = output.view(s[0], -1)
+        # else:
+        #     x = x.mean(dim=2).mean(dim=2)
 
-            output = self.embed_fc1(x)
-            x = F.relu(self.embed_fc1(x))
-            output = self.embed_fc2(x)
+        #     output = self.embed_fc1(x)
+        #     x = F.relu(self.embed_fc1(x))
+        #     output = self.embed_fc2(x)
 
-        return output
+        # 1. Encode with the new AE
+        z, _ = self.autoencoder.encode(im)        # (B,256,h,w)
+        # 2. Global-avg-pool → vector
+        z = self.ae_gap(z).flatten(1)             # (B,256)
+        # 3. Map to the size the rest of the model expects
+        z = F.relu(self.ae_proj(z))               # (B,64)
+        # 4. Produce the per-component latent vector(s)
+        return self.embed_fc2(z)                  # (B, latent_dim*components)
 
     def forward(self, x, latent):
         # logging.info(f'Input feature map size: {x.shape}')
