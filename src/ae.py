@@ -35,6 +35,7 @@ import math
 import os
 from pathlib import Path
 from typing import Tuple
+from PIL import Image
 
 import numpy as np
 import torch
@@ -46,6 +47,9 @@ from torchvision.utils import make_grid, save_image
 from skimage.metrics import structural_similarity as ssim
 import torch.nn.functional as F
 from tqdm import tqdm
+from src.utils.neptune_logger import NeptuneLogger
+import torch, torch.nn as nn, torch.nn.functional as F
+from torch.distributions import Normal, kl_divergence
 
 ###############################################################################
 # Dataset
@@ -57,10 +61,12 @@ class NumpyMRIDataset(Dataset):
     Images are min-max scaled to [0,1].
     """
 
-    def __init__(self, root: str | Path, augment: bool = False, size: int | None = None):
+    def __init__(self, root: str | Path, augment: bool = False, size: int | None = None, eval: bool = False):
         self.root = Path(root)
         self.paths = sorted(p for p in self.root.glob("*.npy"))
+        self.paths = self.paths[:int(len(self.paths) * 0.8)] if eval else self.paths[int(len(self.paths) * 0.8):]
         self.size = size
+        self.augment = augment
         aug_list = [T.RandomHorizontalFlip(), T.RandomVerticalFlip()] if augment else []
         if size:
             aug_list.append(T.Resize((size, size), antialias=True))
@@ -81,11 +87,25 @@ class NumpyMRIDataset(Dataset):
         img = (img - img.min()) / (img.max() - img.min() + 1e-6)
         img = torch.from_numpy(img)[None, ...]  # (1,H,W)
         img = self.transform(img)
+        img = img.unsqueeze(0)
+        img = F.interpolate(img, size=(256, 256), mode="bilinear", align_corners=False)
+        img = img.squeeze(0)
         return img
 
 ###############################################################################
 # Architecture – UNet Lite for Reconstruction
 ###############################################################################
+
+class SE(nn.Module):                                    # tiny squeeze-excite
+    def __init__(self, ch, r=8):
+        super().__init__()
+        self.pool = nn.AdaptiveAvgPool2d(1)
+        self.fc   = nn.Sequential(
+            nn.Conv2d(ch, ch // r, 1), nn.ReLU(inplace=True),
+            nn.Conv2d(ch // r, ch, 1), nn.Sigmoid())
+    def forward(self, x):
+        w = self.fc(self.pool(x))
+        return x * w
 
 def _align(x, ref):
     """Bilinearly resize x so its H,W match ref (skip connection)."""
@@ -106,52 +126,96 @@ class DoubleConv(nn.Sequential):
         )
 
 class UNetAutoencoder(nn.Module):
-    def __init__(self, base_ch: int = 32):
+    r"""
+    * skip_connections = True  → classical U-Net
+    * skip_connections = False → space-to-depth trick, channel attention,
+                                 and NO encoder–decoder skips
+    """
+    def __init__(self,
+                 in_ch: int = 1,
+                 out_ch: int = 1,
+                 base_ch: int = 32,
+                 skip_connections: bool = True,
+                 s2d_factor: int = 2):           # ⇐ typically 2 or 4
         super().__init__()
-        # Encoder
-        self.inc   = DoubleConv(1, base_ch)
-        self.down1 = nn.Sequential(nn.MaxPool2d(2), DoubleConv(base_ch, base_ch*2))
+        self.skip_connections = skip_connections
+        self.s2d = (not skip_connections)
+        self.s2d_factor = s2d_factor if self.s2d else 1
+        self.base_ch = base_ch
+
+        # ---------- Encoder --------------------------------------------------
+        in_ch_eff = in_ch * self.s2d_factor**2
+        self.inc   = DoubleConv(in_ch_eff, base_ch)
+        self.down1 = nn.Sequential(nn.MaxPool2d(2), DoubleConv(base_ch,   base_ch*2))
         self.down2 = nn.Sequential(nn.MaxPool2d(2), DoubleConv(base_ch*2, base_ch*4))
         self.down3 = nn.Sequential(nn.MaxPool2d(2), DoubleConv(base_ch*4, base_ch*8))
         self.down4 = nn.Sequential(nn.MaxPool2d(2), DoubleConv(base_ch*8, base_ch*8))
-        # Decoder
-        self.up1 = nn.ConvTranspose2d(base_ch*8, base_ch*8, 2, stride=2)
-        self.dec1 = DoubleConv(base_ch*16, base_ch*4)
-        self.up2 = nn.ConvTranspose2d(base_ch*4, base_ch*4, 2, stride=2)
-        self.dec2 = DoubleConv(base_ch*8, base_ch*2)
-        self.up3 = nn.ConvTranspose2d(base_ch*2, base_ch*2, 2, stride=2)
-        self.dec3 = DoubleConv(base_ch*4, base_ch)
-        self.up4 = nn.ConvTranspose2d(base_ch, base_ch, 2, stride=2)
-        self.dec4 = DoubleConv(base_ch*2, base_ch)
-        self.outc = nn.Conv2d(base_ch, 1, 1)
+
+        # ---------- Decoder --------------------------------------------------
+        factor = 2 if skip_connections else 1
+        self.up1  = nn.ConvTranspose2d(base_ch*8, base_ch*8, 2, stride=2)
+        self.dec1 = nn.Sequential(DoubleConv(base_ch*8*factor, base_ch*4),
+                                  SE(base_ch*4))
+        self.up2  = nn.ConvTranspose2d(base_ch*4, base_ch*4, 2, stride=2)
+        self.dec2 = nn.Sequential(DoubleConv(base_ch*4*factor, base_ch*2),
+                                  SE(base_ch*2))
+        self.up3  = nn.ConvTranspose2d(base_ch*2, base_ch*2, 2, stride=2)
+        self.dec3 = nn.Sequential(DoubleConv(base_ch*2*factor, base_ch),
+                                  SE(base_ch))
+        self.up4  = nn.ConvTranspose2d(base_ch, base_ch, 2, stride=2)
+        self.dec4 = nn.Sequential(DoubleConv(base_ch*factor, base_ch),
+                                  SE(base_ch))
+
+        out_mult  = self.s2d_factor**2                 # because we’ll pixel-shuffle
+        self.outc = nn.Conv2d(base_ch, out_ch * out_mult, 1)
         self.act  = nn.Sigmoid()
 
+    # ------------------------------------------------------------------------
+    def _maybe_s2d(self, x):
+        return F.pixel_unshuffle(x, self.s2d_factor) if self.s2d else x
+
+    def _maybe_d2s(self, x):
+        return F.pixel_shuffle(x, self.s2d_factor)    if self.s2d else x
+
+    # ------------------------------------------------------------------------
+    def encode(self, x):
+        x  = self._maybe_s2d(x)
+        x1 = self.inc(x)
+        x2 = self.down1(x1)
+        x3 = self.down2(x2)
+        x4 = self.down3(x3)
+        x5 = self.down4(x4)
+        if self.skip_connections:
+            return x5, (x1, x2, x3, x4)
+        return x5, None
+
+    def decode(self, z, skips=None, target_size=None):
+        if self.skip_connections and skips:
+            x1, x2, x3, x4 = skips
+            x = _align(self.up1(z), x4); x = torch.cat([x, x4], 1); x = self.dec1(x)
+            x = _align(self.up2(x), x3); x = torch.cat([x, x3], 1); x = self.dec2(x)
+            x = _align(self.up3(x), x2); x = torch.cat([x, x2], 1); x = self.dec3(x)
+            x = _align(self.up4(x), x1); x = torch.cat([x, x1], 1); x = self.dec4(x)
+        else:
+            x = self.up1(z); x = self.dec1(x)
+            x = self.up2(x); x = self.dec2(x)
+            x = self.up3(x); x = self.dec3(x)
+            x = self.up4(x); x = self.dec4(x)
+
+        x = self.act(self.outc(x))
+        x = self._maybe_d2s(x)
+        if target_size and x.shape[2:] != target_size:
+            x = F.interpolate(x, size=target_size, mode="bilinear",
+                              align_corners=False)
+        return x
+
     def forward(self, x):
-        # encoder ---------------------------------------------------------------
-        x1 = self.inc(x)         #  32 ch
-        x2 = self.down1(x1)      #  64 ch
-        x3 = self.down2(x2)      # 128 ch
-        x4 = self.down3(x3)      # 256 ch
-        x5 = self.down4(x4)      # 256 ch (same as x4)
+        z, skips = self.encode(x)
+        return self.decode(z, skips, target_size=x.shape[2:])
 
-        # decoder ---------------------------------------------------------------
-        x = _align(self.up1(x5), x4)          # 256→256, align to x4
-        x = torch.cat([x, x4], 1)             # 256+256 = 512
-        x = self.dec1(x)                      # →128 ch
-
-        x = _align(self.up2(x), x3)           # 128→128
-        x = torch.cat([x, x3], 1)             # 128+128 = 256
-        x = self.dec2(x)                      # →64 ch
-
-        x = _align(self.up3(x), x2)           # 64→64
-        x = torch.cat([x, x2], 1)             # 64+64 = 128
-        x = self.dec3(x)                      # →32 ch
-
-        x = _align(self.up4(x), x1)           # 32→32
-        x = torch.cat([x, x1], 1)             # 32+32 = 64
-        x = self.dec4(x)                      # →32 ch
-
-        return self.act(self.outc(x))         # 1 ch
+    # convenience ------------------------------------------------------------
+    def reconstruct(self, x):
+        return self.forward(x)
 
 ###############################################################################
 # Metrics
@@ -178,13 +242,14 @@ def get_ssim_loss():
         return _Dummy()
 
 
-def train_epoch(model, loader, optimizer, device, ssim_weight=0.2):
+def train_epoch(model, loader, optimizer, device, ssim_weight=0.2, epoch=0, neptune_logger=None):
     model.train()
     ssim_loss_fn = get_ssim_loss().to(device)
     total_loss = 0.0
-    for batch in tqdm(loader):
+    for i, batch in tqdm(enumerate(loader)):
         batch = batch.to(device)
-        recon = model(batch)
+        latent, skips = model.encode(batch)
+        recon = model.decode(latent, skips)
         mse_loss = nn.functional.mse_loss(recon, batch)
         if ssim_weight > 0:
             ssim_loss = 1 - ssim_loss_fn(recon, batch).mean()
@@ -195,19 +260,39 @@ def train_epoch(model, loader, optimizer, device, ssim_weight=0.2):
         loss.backward()
         optimizer.step()
         total_loss += loss.item() * batch.size(0)
+        grid = make_grid(torch.cat([batch, recon], 0), nrow=8)
+        save_image(grid, f"runs/autoencoder/epoch{epoch},step{i},loss{round(loss.item(), 4)}.png")
+        img = Image.open(f"runs/autoencoder/epoch{epoch},step{i},loss{round(loss.item(), 4)}.png")
+        neptune_logger.log_image("recons", img, step=epoch * len(loader) + i)
+        neptune_logger.log_metric("loss", loss.item(), step=epoch * len(loader) + i)
+        # return loss.item()
     return total_loss / len(loader.dataset)
 
 
-def eval_epoch(model, loader, device):
+def eval_epoch(model, loader, device, epoch=0, neptune_logger=None, ssim_weight=0.2):
+    loader_len = len(loader)
     model.eval()
+    ssim_loss_fn = get_ssim_loss().to(device)
     total_psnr = 0.0
     with torch.no_grad():
-        for batch in loader:
+        for i, batch in tqdm(enumerate(loader)):
             batch = batch.to(device)
-            recon = model(batch)
+            latent, skips = model.encode(batch)
+            recon = model.decode(latent, skips)
             _, psnr = mse_psnr(batch, recon)
             total_psnr += psnr * batch.size(0)
-    return total_psnr / len(loader.dataset)
+            mse_loss = nn.functional.mse_loss(recon, batch)
+            if ssim_weight > 0:
+                ssim_loss = 1 - ssim_loss_fn(recon, batch).mean()
+                loss = (1 - ssim_weight) * mse_loss + ssim_weight * ssim_loss
+            else:
+                loss = mse_loss
+            grid = make_grid(torch.cat([batch, recon], 0), nrow=8)
+            save_image(grid, f"runs/autoencoder/eval_epoch{epoch},step{i},loss{round(loss.item(), 4)}.png")
+            img = Image.open(f"runs/autoencoder/eval_epoch{epoch},step{i},loss{round(loss.item(), 4)}.png")
+            neptune_logger.log_image("eval_recons", img, step=epoch * loader_len + i)
+            neptune_logger.log_metric("loss", loss.item(), step=epoch * loader_len + i)
+    return loss.item()
 
 ###############################################################################
 # Main
@@ -216,6 +301,7 @@ def eval_epoch(model, loader, device):
 def main():
     p = argparse.ArgumentParser(description="Enhanced MRI Autoencoder Trainer")
     p.add_argument("--train_dir", required=True)
+    p.add_argument("--description", required=True)
     p.add_argument("--epochs", type=int, default=50)
     p.add_argument("--batch", type=int, default=8)
     p.add_argument("--lr", type=float, default=1e-3)
@@ -227,33 +313,36 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     Path(args.out).mkdir(parents=True, exist_ok=True)
 
-    train_ds = NumpyMRIDataset(args.train_dir, augment=True, size=args.size)
+    train_ds = NumpyMRIDataset(args.train_dir, augment=False, size=args.size)
     train_loader = DataLoader(train_ds, batch_size=args.batch, shuffle=True, num_workers=4, pin_memory=True)
+    val_ds = NumpyMRIDataset(args.train_dir, augment=False, size=args.size, eval=True)
+    val_loader = DataLoader(val_ds, batch_size=args.batch, shuffle=True, num_workers=4, pin_memory=True)
 
-    model = UNetAutoencoder().to(device)
+    model = UNetAutoencoder(base_ch=256, skip_connections=False).to(device)
     optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
 
-    best_psnr = 0.0
-    for epoch in tqdm(range(1, args.epochs + 1)):
-        loss = train_epoch(model, train_loader, optimizer, device, ssim_weight=0.2)
+    neptune_logger = NeptuneLogger(False, description=args.description)
 
-        print(f"Epoch {epoch:03d}: train-loss {loss:.4f}")
+    for epoch in tqdm(range(1, args.epochs + 1)):
+        loss = train_epoch(model, train_loader, optimizer, device, ssim_weight=0.2, epoch=epoch, neptune_logger=neptune_logger)
+        eval_loss = eval_epoch(model, val_loader, device, epoch=epoch, neptune_logger=neptune_logger)
+        print(f"Epoch {epoch:03d}: train-loss {loss:.4f}, eval-loss {eval_loss:.4f}")
 
         # Save example grid
-        x = next(iter(train_loader))[:8].to(device)
-        recon = model(x)
-        grid = make_grid(torch.cat([x, recon], 0), nrow=8)
-        save_image(grid, Path(args.out) / f"epoch{epoch:03d}.png")
+        # x = next(iter(train_loader))[:8].to(device)
+        # recon = model(x)
+        # grid = make_grid(torch.cat([x, recon], 0), nrow=8)
+        # save_image(grid, Path(args.out) / f"epoch{epoch:03d}.png")
 
         # Checkpoint
-        if loss < best_loss:
-            best_loss = loss
+        if eval_loss < best_loss:
+            best_loss = eval_loss
             torch.save(
                 {"epoch": epoch, "model_state": model.state_dict()},
                 Path(args.out) / "best_model.pt",
             )
 
-    print("Training complete. Best PSNR:", best_psnr)
+    print("Training complete. Best Loss:", best_loss)
 
 
 if __name__ == "__main__":
