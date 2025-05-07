@@ -340,9 +340,9 @@ def main():
             best_loss = eval_loss
             torch.save(
                 {"epoch": epoch, "model_state": model.state_dict()},
-                Path(args.out) / "best_model.pt",
+                str(Path(args.out) / "best_model.pt"),
             )
-            neptune_logger.log_model(Path(args.out) / "best_model.pt", "best_model.pt")
+            neptune_logger.log_model(str(Path(args.out) / "best_model.pt"), "best_model.pt")
 
     print("Training complete. Best Loss:", best_loss)
 
