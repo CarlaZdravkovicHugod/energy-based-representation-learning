@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 from typing import Tuple
 from PIL import Image
+from skimage.metrics import peak_signal_noise_ratio as psnr
 
 import numpy as np
 import torch
@@ -22,7 +23,6 @@ import torch, torch.nn as nn, torch.nn.functional as F
 from torch.distributions import Normal, kl_divergence
 from utils.neptune_logger import NeptuneLogger
 from torch.optim.lr_scheduler import CosineAnnealingLR
-
 
 class NumpyMRIDataset(Dataset):
     """Loads pre-exported `.npy` magnitude slices.
@@ -98,21 +98,21 @@ class MaskedAutoencoder(nn.Module):
 
 def train_epoch(model, loader, optimizer, scheduler, device):
     model.train()
-    # get random batch
     batch = next(iter(loader))
     batch = batch.to(device)
     recon = model(batch)
     loss = ae_loss(batch, recon)
-    optimizer.zero_grad(set_to_none=True)
+    optimizer.zero_grad()
     loss.backward()
     optimizer.step()
     scheduler.step()
     return loss.item(), recon, batch
 
+@torch.no_grad()
 def eval_epoch(model, loader, device):
     model.eval()
     total_loss = 0.0
-    for i, batch in tqdm(enumerate(loader)):
+    for batch in loader:
         batch = batch.to(device)
         recon = model(batch)
         loss = ae_loss(batch, recon)
@@ -171,6 +171,24 @@ def main():
 
         if step % 50 == 0:
             eval_loss, eval_recon, eval_batch = eval_epoch(model, val_loader, device)
+            with torch.no_grad():
+                batch_np = eval_batch.squeeze(1).cpu().numpy()# -> (B, 1, H, W) -> (B,H,W)
+                recon_np  = eval_recon.squeeze(1).cpu().numpy()
+
+                per_ssim = [
+                    ssim(b, r, data_range=1.0)
+                    for b, r in zip(batch_np, recon_np)
+                ]
+                per_psnr = [
+                    psnr(b, r, data_range=1.0)
+                    for b, r in zip(batch_np, recon_np)
+                ]
+
+                val_ssim = np.mean(per_ssim)
+                val_psnr = np.mean(per_psnr)
+
+            neptune_logger.log_metric("eval_ssim", val_ssim)
+            neptune_logger.log_metric("eval_psnr", val_psnr)
             neptune_logger.log_metric("eval_loss", eval_loss)
             save_grids(train_batch, train_recon, eval_batch, eval_recon, neptune_logger, step)
             if eval_loss < best_loss:
