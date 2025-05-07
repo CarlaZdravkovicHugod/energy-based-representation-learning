@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from ae import UNetAutoencoder, NumpyMRIDataset
 from torch.utils.data import DataLoader
 from matplotlib.offsetbox import OffsetImage, AnnotationBbox
+import logging
 
 # Initialize the UNetAutoencoder
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -23,20 +24,22 @@ if len(dataset) == 0:
 dataloader = DataLoader(dataset, batch_size=20)
 im = next(iter(dataloader))
 images = im.to(device)
-print(f"Images shape: {images.shape}")
+logging.info(f"Images shape: {images.shape}")
 
 # Extract latent representations
+logging.info("Encoding...")
 with torch.no_grad():
     latents, _ = model.encode(images)
 
 # Flatten the latent space for t-SNE
 latents_flat = latents.view(latents.size(0), -1).cpu().numpy()
-print(f"Latents flattened shape: {latents_flat.shape}")
-print(f"Latents original shape: {latents.shape}")
+logging.info(f"Latents flattened shape: {latents_flat.shape}")
+logging.info(f"Latents original shape: {latents.shape}")
 
 # Perform t-SNE
 perplex = min(30, latents_flat.shape[0] - 1)
-tsne = TSNE(n_components=latents_flat.shape[0], random_state=42, perplexity=perplex)  # Reduce to 2 dimensions for visualization
+logging.info(f"Perplexity: {perplex}")
+tsne = TSNE(n_components=2, random_state=42, perplexity=perplex)  # Reduce to 2 dimensions for visualization
 latents_tsne = tsne.fit_transform(latents_flat)
 
 # Visualize the t-SNE results
@@ -62,6 +65,7 @@ plt.tight_layout()
 plt.show()
 
 # Reconstruct images from the latent space
+logging.info("Decoding...")
 with torch.no_grad():
     reconstructed_images = model.decode(latents)
 
