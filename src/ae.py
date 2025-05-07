@@ -64,7 +64,7 @@ class NumpyMRIDataset(Dataset):
     def __init__(self, root: str | Path, augment: bool = False, size: int | None = None, eval: bool = False):
         self.root = Path(root)
         self.paths = sorted(p for p in self.root.glob("*.npy"))
-        self.paths = self.paths[:int(len(self.paths) * 0.8)] if eval else self.paths[int(len(self.paths) * 0.8):]
+        self.paths = self.paths[:int(len(self.paths) * 0.8)] if not eval else self.paths[int(len(self.paths) * 0.8):]
         self.size = size
         self.augment = augment
         aug_list = [T.RandomHorizontalFlip(), T.RandomVerticalFlip()] if augment else []

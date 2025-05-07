@@ -1,3 +1,4 @@
+
 #!/bin/sh
 
 # A100 GPU queue, there is also gpua40 and gpua10
@@ -24,4 +25,4 @@
 source .venv/bin/activate
 export NEPTUNE_PROJECT_NAME="unsupervised-learning-of-energy-representations/unsupervised-learning-of-energy-representations"
 export NEPTUNE_API_TOKEN="eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdXJsIjoiaHR0cHM6Ly9hcHAubmVwdHVuZS5haSIsImFwaV9rZXkiOiJhNzZkZDFhNy03NTdjLTRjMjAtYTAyZS05NzU4NzEwZGI2N2EifQ=="
-PYTHONPATH="." python src/ae.py --train_dir "data/" --description 2056Autoencoder_With_SSIM_500_Epochs_NoSkipConnections_HPC
+PYTHONPATH="." python src/ae_with_paper.py --train_dir data/ --description simple_AE --steps 100000
