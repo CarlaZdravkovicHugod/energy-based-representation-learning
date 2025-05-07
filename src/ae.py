@@ -265,7 +265,7 @@ def train_epoch(model, loader, optimizer, device, ssim_weight=0.2, epoch=0, nept
         img = Image.open(f"runs/autoencoder/epoch{epoch},step{i},loss{round(loss.item(), 4)}.png")
         neptune_logger.log_image("recons", img, step=epoch * len(loader) + i)
         neptune_logger.log_metric("loss", loss.item(), step=epoch * len(loader) + i)
-        # return loss.item()
+        os.remove(f"runs/autoencoder/epoch{epoch},step{i},loss{round(loss.item(), 4)}.png")
     return total_loss / len(loader.dataset)
 
 
@@ -292,6 +292,7 @@ def eval_epoch(model, loader, device, epoch=0, neptune_logger=None, ssim_weight=
             img = Image.open(f"runs/autoencoder/eval_epoch{epoch},step{i},loss{round(loss.item(), 4)}.png")
             neptune_logger.log_image("eval_recons", img, step=epoch * loader_len + i)
             neptune_logger.log_metric("loss", loss.item(), step=epoch * loader_len + i)
+            os.remove(f"runs/autoencoder/eval_epoch{epoch},step{i},loss{round(loss.item(), 4)}.png")
     return loss.item()
 
 ###############################################################################
@@ -302,8 +303,8 @@ def main():
     p = argparse.ArgumentParser(description="Enhanced MRI Autoencoder Trainer")
     p.add_argument("--train_dir", required=True)
     p.add_argument("--description", required=True)
-    p.add_argument("--epochs", type=int, default=50)
-    p.add_argument("--batch", type=int, default=8)
+    p.add_argument("--epochs", type=int, default=1000)
+    p.add_argument("--batch", type=int, default=32)
     p.add_argument("--lr", type=float, default=1e-3)
     p.add_argument("--size", type=int, default=None, help="Resize square length (e.g. 128)")
     p.add_argument("--out", type=str, default="runs/autoencoder")
