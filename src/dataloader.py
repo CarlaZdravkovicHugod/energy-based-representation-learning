@@ -15,6 +15,7 @@ from src.config.load_config import load_config
 from torch.nn.functional import normalize
 import torch.nn.functional as F
 import sklearn.preprocessing as skp
+import pandas as pd
 
 class BrainDataset(Dataset):
     def __init__(self, config: Config):
@@ -106,8 +107,50 @@ class MRI2D(data.Dataset):
         sample = torch.tensor(sample).unsqueeze(0) # add channel dimension explicitly
         
         return sample, idx
+class Metadata(data.Dataset):
+    def __init__(self, data_dir, transform=None):
+        """
+        Args:
+            data_dir (string): Directory with file.
+            transform (callable, optional): Optional transform to be applied on a sample image.
+        """
+        metadata_dir = Path(__file__).absolute().parent.parent / 'data'
+        self.transform = transform
+        self.metadata = pd.read_excel(os.path.join(metadata_dir, 'allsup.xlsx'))
+        # only take the first couple of columns
+        self.metadata = self.metadata.iloc[:, :7]
+
+
+        data_dir = Path(__file__).absolute().parent.parent / 'data'
+        self.files = sorted(glob(os.path.join(data_dir, '*.npy')))
+
+    def __len__(self):
+        return self.metadata.shape
+
+    def __getitem__(self, idx):
+        if isinstance(idx, (list, np.ndarray)):
+            idx = idx.tolist()
+
+        npy_path = self.files[idx]
+        sample = np.load(npy_path)
+    
+        sample = (sample - sample.min()) / (sample.max() - sample.min())
+        sample = torch.tensor(sample).unsqueeze(0) # add channel dimension explicitly
+
+        # Extract metadata corresponding to the image
+        metadata_row = self.metadata.iloc[idx//2].dropna() # //2 because we have 2 images per subject
+        metadata = metadata_row.to_dict()
+
+        return sample, idx, metadata
 
 if __name__ == "__main__":
+    metadataset = Metadata(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'data', 'allsup.xlsx')))
+    print(metadataset.__len__())
+    sample, idx, metadata = metadataset.__getitem__(1)
+    print(f'Index: {idx}, Subject path: {metadataset.files[idx]}, Metadata: {metadata}')
+
+
+
     d3 = MRI2D(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'data', '*.py')))
     item = d3.__getitem__(0)
     print(item[0].shape)
@@ -126,5 +169,6 @@ if __name__ == "__main__":
     plt.title('Original Image')
     plt.tight_layout()
     plt.show()
+
     # this has 2820 files
     # all the values in the tensors are really large, ranges from -90 to 3000
