@@ -40,7 +40,6 @@ def gen_image(latents, config, models, im_neg, im, steps = 10, create_graph=True
     im_noise = torch.randn_like(im_neg).detach()
 
     im_negs = []
-
     latents = torch.stack(latents, dim=0)
 
     if config.decoder: # TODO: split genimage into a with and without decoder functiom
@@ -102,7 +101,7 @@ def init_model(config, dataset):
     return models, optimizers, schedulers
 
 
-def train(train_dataloader, models, optimizers, schedulers, config):
+def train(train_dataloader, models, optimizers, schedulers, config, neptune_logger: NeptuneLogger):
     # Log the configuration
     neptune_logger.log_config_dict(asdict(config))
 
@@ -114,38 +113,25 @@ def train(train_dataloader, models, optimizers, schedulers, config):
     # Initialize GradScaler for mixed precision
     scaler = GradScaler()
 
-    for it, (im, idx) in tqdm(enumerate(train_dataloader), total=config.steps):
+    for it, im in tqdm(enumerate(train_dataloader), total=config.steps):
         im = im.to(dev)  # 8, 3, 64, 64
-        idx = idx.to(dev)
 
         optimizers[0].zero_grad()
 
         with autocast():  # Updated autocast usage
-            z, skips = models[0].autoencoder.encode(im)
-            recon   = models[0].autoencoder.decode(z, skips)
-
-            mse  = F.mse_loss(recon, im)
-            ssim = 1 - get_ssim(config.channels)(recon, im).mean()
-            ae_loss = (1 - config.ssim_weight) * mse + config.ssim_weight * ssim
-
-            _, psnr = mse_psnr(recon.detach(), im)
-            neptune_logger.log_metric("PSNR", psnr, step=int(it))
-
-            # ---------------- EBM branch (unchanged) ---------------
             latent = models[0].embed_latent(im)   # vector latent
             latents = torch.chunk(latent, config.components, dim=1)
             im_neg = torch.rand_like(im)
             im_neg, im_negs, _, _ = gen_image(latents, config, models, im_neg, im)
             im_negs = torch.stack(im_negs, dim=1)
             im_loss = torch.pow(im_negs[:, -1:] - im[:, None], 2).mean()
-            loss = im_loss + config.ae_lambda * ae_loss
+            loss = im_loss
 
-        neptune_logger.log_metric("ae_loss", ae_loss.item(), step=int(it))
-
-        # Log metrics
         neptune_logger.log_metric("im_loss", im_loss.item(), step=int(it))
         neptune_logger.log_metric("loss", loss.item(), step=int(it))
         neptune_logger.log_metric("scheduler_lr", optimizers[0].param_groups[0]['lr'], step=int(it))
+        im_negs_grid = make_grid(im_negs, nrow=config.components)
+        neptune_logger.log_image("im_negs", im_negs_grid, step=int(it))
 
         # Backpropagation with GradScaler
         scaler.scale(loss).backward()
@@ -158,15 +144,7 @@ def train(train_dataloader, models, optimizers, schedulers, config):
         [scheduler.step(loss) for scheduler in schedulers]
 
         if it % 100 == 0:
-            # grid: originals | reconstructions
-            grid = make_grid(torch.cat([im[:8], recon[:8]], 0), nrow=8)
-            save_path = f"{config.run_dir}/epoch{it:06d}.png"
-            save_image(grid, save_path)
-            im_pil = Image.open(save_path)
-            neptune_logger.log_image("recons", im_pil, step=int(it))
-
             torch.save({"it": it,
-                        "ae_state": models[0].autoencoder.state_dict(),
                         "ebm_state": [m.state_dict() for m in models]},
                         f"{config.run_dir}/best_model.pt")
             neptune_logger.log_model(f"{config.run_dir}/best_model.pt", f"models_{it}.pth")
@@ -181,7 +159,7 @@ def main(config: Config, neptune_logger: NeptuneLogger):
         test_dataset = Clevr(config, train=False)
     elif config.dataset == '2DMRI':
         dataset = MRI2D(config) # TOOD: test and train cannor be the same
-        test_dataset = MRI2D(config)
+        test_dataset = MRI2D(config, eval=True)
 
     print(f'Train dataset has {len(dataset)} samples')
     print(f'Test dataset has {len(test_dataset)} samples')
@@ -197,7 +175,7 @@ def main(config: Config, neptune_logger: NeptuneLogger):
 
     logging.info(f'config: {config}')
     models = [model.train() for model in models]
-    train(train_dataloader, models, optimizers, schedulers, config)
+    train(train_dataloader, models, optimizers, schedulers, config, neptune_logger)
 
 
 def listen_for_exit():

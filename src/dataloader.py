@@ -15,6 +15,8 @@ from src.config.load_config import load_config
 from torch.nn.functional import normalize
 import torch.nn.functional as F
 import sklearn.preprocessing as skp
+from torchvision import transforms as T
+from typing import Union, Optional
 
 class BrainDataset(Dataset):
     def __init__(self, config: Config):
@@ -80,32 +82,43 @@ class Clevr(data.Dataset):
 
         return im, index
     
-class MRI2D(data.Dataset):
-    def __init__(self, data_dir, transform=None):
-        """
-        Args:
-            data_dir (string): Directory with all the `.npy` files.
-            transform (callable, optional): Optional transform to be applied on a sample.
-        """
-        data_dir = Path(__file__).absolute().parent.parent / 'data'
-        self.transform = transform
-        self.files = sorted(glob(os.path.join(data_dir, '*.npy')))
+class MRI2D(Dataset):
+    """Loads pre-exported `.npy` magnitude slices.
+
+    Each file can be (H,W) **or** (N,H,W). Channel dim is added automatically.
+    Images are min-max scaled to [0,1].
+    """
+
+    def __init__(self, config: Config, augment: bool = False, size: Optional[int] = None, eval: bool = False):
+        self.root = Path(config.data_path)
+        self.paths = sorted(p for p in self.root.glob("*.npy"))
+        self.paths = self.paths[:int(len(self.paths) * 0.8)] if not eval else self.paths[int(len(self.paths) * 0.8):]
+        self.size = size
+        self.augment = augment
+        aug_list = [T.RandomHorizontalFlip(), T.RandomVerticalFlip()] if augment else []
+        if size:
+            aug_list.append(T.Resize((size, size), antialias=True))
+        self.transform = T.Compose(aug_list)
+
+        self.slices: list[np.ndarray] = []
+        for path in self.paths:
+            arr = np.load(path)
+            if arr.ndim == 2:
+                arr = arr[None, ...]  # (1,H,W)
+            self.slices.extend(arr)  # list of (H,W)
 
     def __len__(self):
-        return len(self.files)
+        return len(self.slices)
 
     def __getitem__(self, idx):
-        if isinstance(idx, (list, np.ndarray)):
-            idx = idx.tolist()
-
-        npy_path = self.files[idx]
-        sample = np.load(npy_path)
-    
-        sample = (sample - sample.min()) / (sample.max() - sample.min())
-        # sample = F.pad(torch.tensor(sample), (0, 0, 256-sample.shape[0], 0))
-        sample = torch.tensor(sample).unsqueeze(0) # add channel dimension explicitly
-        
-        return sample, idx
+        img = self.slices[idx].astype(np.float32)
+        img = (img - img.min()) / (img.max() - img.min() + 1e-6)
+        img = torch.from_numpy(img)[None, ...]  # (1,H,W)
+        img = self.transform(img)
+        img = img.unsqueeze(0)
+        img = F.interpolate(img, size=(256, 256), mode="bilinear", align_corners=False)
+        img = img.squeeze(0)
+        return img
 
 if __name__ == "__main__":
     d3 = MRI2D(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'data', '*.py')))

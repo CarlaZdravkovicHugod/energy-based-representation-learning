@@ -65,32 +65,49 @@ class NumpyMRIDataset(Dataset):
 class MaskedAutoencoder(nn.Module):
     def __init__(self):
         super().__init__()
-        self.encoder = nn.Sequential(
-            nn.Conv2d(1, 16, 3, stride=2, padding=1),  # 128x128
+
+        self.encoder_conv = nn.Sequential(
+            nn.Conv2d(1, 16, 3, stride=2, padding=1),          # 256 → 128
             nn.ReLU(),
-            nn.Conv2d(16, 32, 3, stride=2, padding=1), # 64x64 
+            nn.Conv2d(16, 32, 3, stride=2, padding=1),         # 128 → 64
             nn.ReLU(),
-            nn.Conv2d(32, 64, 3, stride=2, padding=1), # 32x32
+            nn.Conv2d(32, 64, 3, stride=2, padding=1),         # 64 → 32
             nn.ReLU(),
-            nn.Conv2d(64, 128, 3, stride=2, padding=1), # 16x16
+            nn.Conv2d(64, 64, 3, stride=2, padding=1),         # 32 → 16
             nn.ReLU(),
+            nn.Conv2d(64, 64, 3, stride=2, padding=1),         # 16 → 8
+            nn.ReLU(),
+            nn.Conv2d(64, 64, 3, stride=2, padding=1),         # 8 → 4 
+            nn.ReLU(),
+        )
+        # latent shape = (batch, 64, 4, 4)  →  1024 scalars per sample
+
+        self.decoder_conv = nn.Sequential(
+            nn.ConvTranspose2d(64, 64, 3, stride=2, padding=1, output_padding=1),   # 4 → 8 
+            nn.ReLU(),
+            nn.ConvTranspose2d(64, 64, 3, stride=2, padding=1, output_padding=1),   # 8 → 16
+            nn.ReLU(),
+            nn.ConvTranspose2d(64, 64, 3, stride=2, padding=1, output_padding=1),   # 16 → 32
+            nn.ReLU(),
+            nn.ConvTranspose2d(64, 32, 3, stride=2, padding=1, output_padding=1),   # 32 → 64
+            nn.ReLU(),
+            nn.ConvTranspose2d(32, 16, 3, stride=2, padding=1, output_padding=1),   # 64 → 128
+            nn.ReLU(),
+            nn.ConvTranspose2d(16,  1, 3, stride=2, padding=1, output_padding=1),   # 128 → 256
+            nn.Sigmoid(),
         )
 
-        self.decoder = nn.Sequential(
-            nn.ConvTranspose2d(128, 64, 3, stride=2, padding=1, output_padding=1), # 32x32
-            nn.ReLU(),
-            nn.ConvTranspose2d(64, 32, 3, stride=2, padding=1, output_padding=1), # 64x64
-            nn.ReLU(), 
-            nn.ConvTranspose2d(32, 16, 3, stride=2, padding=1, output_padding=1), # 128x128
-            nn.ReLU(),
-            nn.ConvTranspose2d(16, 1, 3, stride=2, padding=1, output_padding=1), # 256x256
-            nn.Sigmoid()
-        )
+    def encode(self, x):
+        x = self.encoder_conv(x)
+        # z = self.encoder_fc(x.flatten(start_dim=1))   # (B, 2048)
+        return x
+
+    def decode(self, z):
+        x = self.decoder_conv(z)
+        return x
 
     def forward(self, x):
-        x = self.encoder(x)
-        x = self.decoder(x)
-        return x
+        return self.decode(self.encode(x))
     
 ### ----- ###
 ### UTILS ###

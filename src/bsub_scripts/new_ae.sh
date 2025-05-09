@@ -2,7 +2,7 @@
 #!/bin/sh
 
 # A100 GPU queue, there is also gpua40 and gpua10
-#BSUB -q gpua40
+#BSUB -q gpua100
 
 # job name
 #BSUB -J Autoencoder
@@ -25,4 +25,4 @@
 source .venv/bin/activate
 export NEPTUNE_PROJECT_NAME="unsupervised-learning-of-energy-representations/unsupervised-learning-of-energy-representations"
 export NEPTUNE_API_TOKEN="eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdXJsIjoiaHR0cHM6Ly9hcHAubmVwdHVuZS5haSIsImFwaV9rZXkiOiJhNzZkZDFhNy03NTdjLTRjMjAtYTAyZS05NzU4NzEwZGI2N2EifQ=="
-PYTHONPATH="." python src/ae_with_paper.py --train_dir data/ --description simple_AE --steps 100000
+PYTHONPATH="." python src/ae_with_paper.py --train_dir data/ --description simple_AE_1024features_noDenseLayer --steps 200000
