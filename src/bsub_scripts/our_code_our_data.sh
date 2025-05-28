@@ -4,7 +4,7 @@
 #BSUB -q gpua40
 
 # job name
-#BSUB -J ebm_old
+#BSUB -J ebm128_comps7
 
 # 4 cpus, 1 machine, 1 gpu, 24 hours (the max)
 #BSUB -n 4
