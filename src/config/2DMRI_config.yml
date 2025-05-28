@@ -18,7 +18,7 @@ dataset: "2DMRI"
 steps: 100000
 decoder: false
 channels: 1
-model: 'LatentEBM128' # or 'LatentEBM'
+model: 'LatentEBM' # or 'LatentEBM'
 
 
 
