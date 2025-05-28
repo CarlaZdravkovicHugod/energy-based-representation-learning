@@ -1,8 +1,8 @@
 import matplotlib.pyplot as plt
 import torch
-from comet_models import LatentEBM
-from config.load_config import load_config
-from dataloader import MRI2D, Clevr
+from src.comet_models import LatentEBM
+from src.config.load_config import load_config
+from src.dataloader import MRI2D, Clevr
 import matplotlib.pyplot as plt
 from imageio.v2 import get_writer
 import logging
