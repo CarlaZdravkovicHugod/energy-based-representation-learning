@@ -4,7 +4,7 @@
 #BSUB -q gpua40
 
 # job name
-#BSUB -J 2DMRI_Data
+#BSUB -J ebm_old
 
 # 4 cpus, 1 machine, 1 gpu, 24 hours (the max)
 #BSUB -n 4
