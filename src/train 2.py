@@ -12,11 +12,7 @@ from dataloader import Clevr, BrainDataset, MRI2D
 import threading
 from dataclasses import asdict
 from src.utils.neptune_logger import NeptuneLogger
-from torch.cuda.amp import autocast, GradScaler
-from piqa import SSIM                                   # differentiable SSIM
-from torchvision.utils import make_grid, save_image
-import math
-from PIL import Image
+from torchmetrics.functional.image.ssim import structural_similarity_index_measure as ssim
 
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(parent_dir)
@@ -25,14 +21,6 @@ from src.config.load_config import load_config, Config
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s')
 
 logging.info("Importing log this")
-
-def mse_psnr(x, y):
-    mse = F.mse_loss(x, y).item()
-    return mse, 20 * math.log10(1. / math.sqrt(mse + 1e-12))
-
-def get_ssim(nc):
-    ssim = SSIM(n_channels=nc)
-    return ssim.cuda() if torch.cuda.is_available() else ssim
 
 def gen_image(latents, config, models, im_neg, im, steps = 10, create_graph=True, idx=None):
     # TODO: the samples were used through langevin, where did they go?
@@ -98,7 +86,7 @@ def init_model(config, dataset):
     # TODO? enseblemes should be == components
     # TODO: we should make some runs where we opitmize lr, steps, batches etc.
     optimizers = [Adam(model.parameters(), lr=config.lr) for model in models]
-    schedulers = [torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=1000) for optimizer in optimizers]
+    schedulers = [torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=200) for optimizer in optimizers]
     return models, optimizers, schedulers
 
 
@@ -111,65 +99,54 @@ def train(train_dataloader, models, optimizers, schedulers, config):
     else:
         dev = torch.device("cpu")
 
-    # Initialize GradScaler for mixed precision
-    scaler = GradScaler()
+    # Define weights for the combined loss
+    ssim_weight = 0.1  # Weight for SSIM loss
+    reconstruction_weight = 1.0  # Weight for reconstruction loss
 
     for it, (im, idx) in tqdm(enumerate(train_dataloader), total=config.steps):
         im = im.to(dev)  # 8, 3, 64, 64
         idx = idx.to(dev)
 
-        optimizers[0].zero_grad()
+        # Generate latent representations and images
+        latent = models[0].embed_latent(im)
+        latents = torch.chunk(latent, config.components, dim=1)
+        im_neg = torch.rand_like(im)
+        im_neg, im_negs, _, _ = gen_image(latents, config, models, im_neg, im)
+        im_negs = torch.stack(im_negs, dim=1)
 
-        with autocast():  # Updated autocast usage
-            z, skips = models[0].autoencoder.encode(im)
-            recon   = models[0].autoencoder.decode(z, skips)
+        # Compute reconstruction loss (L2 loss)
+        im_loss = torch.pow(im_negs[:, -1:] - im[:, None], 2).mean()
 
-            mse  = F.mse_loss(recon, im)
-            ssim = 1 - get_ssim(config.channels)(recon, im).mean()
-            ae_loss = (1 - config.ssim_weight) * mse + config.ssim_weight * ssim
+        # Compute SSIM loss
+        ssim_value = ssim(im_negs[:, -1], im, data_range=1.0)  # Assuming images are normalized to [0, 1]
+        ssim_loss = 1 - ssim_value  # Convert SSIM to a loss (lower is better)
 
-            _, psnr = mse_psnr(recon.detach(), im)
-            neptune_logger.log_metric("PSNR", psnr, step=int(it))
-
-            # ---------------- EBM branch (unchanged) ---------------
-            latent = models[0].embed_latent(im)   # vector latent
-            latents = torch.chunk(latent, config.components, dim=1)
-            im_neg = torch.rand_like(im)
-            im_neg, im_negs, _, _ = gen_image(latents, config, models, im_neg, im)
-            im_negs = torch.stack(im_negs, dim=1)
-            im_loss = torch.pow(im_negs[:, -1:] - im[:, None], 2).mean()
-            loss = im_loss + config.ae_lambda * ae_loss
-
-        neptune_logger.log_metric("ae_loss", ae_loss.item(), step=int(it))
+        # Combine the losses
+        combined_loss = reconstruction_weight * im_loss + ssim_weight * ssim_loss
 
         # Log metrics
-        neptune_logger.log_metric("im_loss", im_loss.item(), step=int(it))
-        neptune_logger.log_metric("loss", loss.item(), step=int(it))
+        logging.info(f"Iteration {it}: Loss: {combined_loss.item()}, Reconstruction Loss: {im_loss.item()}, SSIM Loss: {ssim_loss.item()}")
+        neptune_logger.log_metric("loss", im_loss.item(), step=int(it))
+        neptune_logger.log_metric("ssim", ssim_loss.item(), step=int(it))
+        neptune_logger.log_metric("combined", combined_loss.item(), step=int(it))
         neptune_logger.log_metric("scheduler_lr", optimizers[0].param_groups[0]['lr'], step=int(it))
 
-        # Backpropagation with GradScaler
-        scaler.scale(loss).backward()
+        # Backpropagation
+        combined_loss.backward()
 
-        # Optimizer step with GradScaler
-        scaler.step(optimizers[0])
-        scaler.update()
+        # Gradient clipping and optimizer step
+        [torch.nn.utils.clip_grad_norm_(model.parameters(), 10.0) for model in models]
+        [optimizer.step() for optimizer in optimizers]
+        [optimizer.zero_grad() for optimizer in optimizers]
 
         # Scheduler step
-        [scheduler.step(loss) for scheduler in schedulers]
+        [scheduler.step(combined_loss) for scheduler in schedulers]
 
+        # Save model checkpoints periodically
         if it % 100 == 0:
-            # grid: originals | reconstructions
-            grid = make_grid(torch.cat([im[:8], recon[:8]], 0), nrow=8)
-            save_path = f"{config.run_dir}/epoch{it:06d}.png"
-            save_image(grid, save_path)
-            im_pil = Image.open(save_path)
-            neptune_logger.log_image("recons", im_pil, step=int(it))
-
-            torch.save({"it": it,
-                        "ae_state": models[0].autoencoder.state_dict(),
-                        "ebm_state": [m.state_dict() for m in models]},
-                        f"{config.run_dir}/best_model.pt")
-            neptune_logger.log_model(f"{config.run_dir}/best_model.pt", f"models_{it}.pth")
+            models_copy = [model.state_dict() for model in models]
+            torch.save(models_copy, f"models.pth")
+            neptune_logger.log_model(f"models.pth", f"models_{it}.pth")
 
 
 def main(config: Config, neptune_logger: NeptuneLogger):
