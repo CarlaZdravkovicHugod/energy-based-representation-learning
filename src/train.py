@@ -81,10 +81,12 @@ def gen_image(latents, config, models, im_neg, im, steps = 50, create_graph=True
             latents = latents
 
             im_neg = torch.clamp(im_neg, 0, 1)
-            im_neg = im_neg.detach()
-            im_neg.requires_grad_()
-
-    im_negs.append(im_neg)
+            # if not last step
+            if i != steps - 1:
+                im_neg = im_neg.detach()
+                im_neg.requires_grad_()
+            else:
+                im_negs.append(im_neg)
 
     return im_neg, im_negs, im_grad, masks
 
