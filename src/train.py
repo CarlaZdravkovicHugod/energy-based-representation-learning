@@ -34,7 +34,7 @@ def get_ssim(nc):
     ssim = SSIM(n_channels=nc)
     return ssim.cuda() if torch.cuda.is_available() else ssim
 
-def gen_image(latents, config, models, im_neg, im, steps = 10, create_graph=True, idx=None):
+def gen_image(latents, config, models, im_neg, im, steps = 50, create_graph=True, idx=None):
     # TODO: the samples were used through langevin, where did they go?
     # TODO: optimal number of steps?
     im_noise = torch.randn_like(im_neg).detach()
@@ -81,9 +81,10 @@ def gen_image(latents, config, models, im_neg, im, steps = 10, create_graph=True
             latents = latents
 
             im_neg = torch.clamp(im_neg, 0, 1)
-            im_negs.append(im_neg)
             im_neg = im_neg.detach()
             im_neg.requires_grad_()
+
+    im_negs.append(im_neg)
 
     return im_neg, im_negs, im_grad, masks
 
@@ -97,7 +98,7 @@ def init_model(config, dataset):
     # TODO? enseblemes should be == components
     # TODO: we should make some runs where we opitmize lr, steps, batches etc.
     optimizers = [Adam(model.parameters(), lr=config.lr) for model in models]
-    schedulers = [torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=1000) for optimizer in optimizers]
+    schedulers = [torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=100) for optimizer in optimizers]
     return models, optimizers, schedulers
 
 
@@ -123,14 +124,39 @@ def train(train_dataloader, models, optimizers, schedulers, config, neptune_logg
             latents = torch.chunk(latent, config.components, dim=1)
             im_neg = torch.rand_like(im)
             im_neg, im_negs, _, _ = gen_image(latents, config, models, im_neg, im)
-            im_negs = torch.stack(im_negs, dim=1)
+            
+            # Fix the stacking and reshaping for make_grid
+            if len(im_negs) > 1:
+                im_negs = torch.stack(im_negs, dim=1)  # (B, num_steps, C, H, W)
+                # Reshape for make_grid: (B * num_steps, C, H, W)
+                b, num_steps, c, h, w = im_negs.shape
+                im_negs_for_grid = im_negs.reshape(b * num_steps, c, h, w)
+            else:
+                # If only one image, just use it directly
+                im_negs_for_grid = im_negs[0]
+                im_negs = torch.stack(im_negs, dim=1)  # Keep for loss computation
+            
             im_loss = torch.pow(im_negs[:, -1:] - im[:, None], 2).mean()
             loss = im_loss
 
         neptune_logger.log_metric("im_loss", im_loss.item(), step=int(it))
         neptune_logger.log_metric("loss", loss.item(), step=int(it))
         neptune_logger.log_metric("scheduler_lr", optimizers[0].param_groups[0]['lr'], step=int(it))
-        im_negs_grid = make_grid(im_negs, nrow=config.components)
+        
+        # Use the properly shaped tensor for make_grid and format for Neptune
+        im_negs_grid = make_grid(im_negs_for_grid, nrow=min(config.components, im_negs_for_grid.size(0)))
+        
+        # Convert from (C, H, W) to (H, W, C) for Neptune and ensure it's in the right format
+        if im_negs_grid.dim() == 3:
+            im_negs_grid = im_negs_grid.permute(1, 2, 0)  # (C, H, W) -> (H, W, C)
+        
+        # Convert to CPU and clamp values to [0, 1]
+        im_negs_grid = torch.clamp(im_negs_grid, 0, 1).cpu()
+        
+        # If single channel, squeeze the last dimension for grayscale
+        if im_negs_grid.shape[-1] == 1:
+            im_negs_grid = im_negs_grid.squeeze(-1)  # (H, W, 1) -> (H, W)
+        
         neptune_logger.log_image("im_negs", im_negs_grid, step=int(it))
 
         # Backpropagation with GradScaler
@@ -146,8 +172,8 @@ def train(train_dataloader, models, optimizers, schedulers, config, neptune_logg
         if it % 100 == 0:
             torch.save({"it": it,
                         "ebm_state": [m.state_dict() for m in models]},
-                        f"{config.run_dir}/best_model.pt")
-            neptune_logger.log_model(f"{config.run_dir}/best_model.pt", f"models_{it}.pth")
+                        f"{config.run_dir}/best_model1.pt")
+            neptune_logger.log_model(f"{config.run_dir}/best_model1.pt", f"models_{it}.pth")
 
 
 def main(config: Config, neptune_logger: NeptuneLogger):

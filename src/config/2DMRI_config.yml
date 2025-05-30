@@ -1,17 +1,17 @@
-run_name: "2DMRI" # corresponds to exp
+run_name: "2DMRI - with new autoencoder - 50 internal steps" # corresponds to exp
 test_run: false
-batch_size: 16
+batch_size: 2
 data_workers: 0
 shuffle_dataset: true
 num_epoch: 10
 lr: 0.0001
 step_lr: 100.0
 components: 8
-ensembles: 10
+ensembles: 8
 data_path: "data"
 train_data_size: 0.75
-filter_dim: 256 # was 32
-latent_dim: 32
+filter_dim: 64 # was 32
+latent_dim: 512
 pos_embed: false
 recurrent_model: false
 dataset: "2DMRI"

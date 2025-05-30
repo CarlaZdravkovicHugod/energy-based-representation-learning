@@ -91,7 +91,7 @@ class CondResBlock(nn.Module):
         self.downsample = downsample
         self.latent_grid = latent_grid
 
-        if filters <= 128:
+        if filters <= 128: # not used
             self.bn1 = nn.InstanceNorm2d(filters, affine=False)
         else:
             self.bn1 = nn.GroupNorm(32, filters, affine=False)
@@ -306,9 +306,10 @@ class LatentEBM128(nn.Module):
         self.embed_layer2 = CondResBlockNoLatent(filters=filter_dim, rescale=False, downsample=True)
         self.embed_layer3 = CondResBlockNoLatent(filters=filter_dim, rescale=False, downsample=True)
 
-        self.decode_layer1 = CondResBlockNoLatent(filters=filter_dim, rescale=False, upsample=True, downsample=False)
-        self.decode_layer2 = CondResBlockNoLatent(filters=filter_dim, rescale=False, upsample=True, downsample=False)
-        self.decode_layer3 = CondResBlockNoLatent(filters=filter_dim, rescale=False, upsample=True, downsample=False)
+
+        # self.decode_layer1 = CondResBlockNoLatent(filters=filter_dim, rescale=False, upsample=True, downsample=False)
+        # self.decode_layer2 = CondResBlockNoLatent(filters=filter_dim, rescale=False, upsample=True, downsample=False)
+        # self.decode_layer3 = CondResBlockNoLatent(filters=filter_dim, rescale=False, upsample=True, downsample=False)
 
         self.latent_decode = nn.Conv2d(filter_dim, latent_dim_expand, kernel_size=3, stride=1, padding=1)
 
@@ -354,6 +355,8 @@ class LatentEBM128(nn.Module):
 
     def embed_latent(self, im):
         x = self.autoencoder.encode(im)
+        # completely flatten the latent vector
+        x = x.view(x.size(0), -1)
         return x
         # x = self.embed_conv1(im)
         # x = F.relu(x)
