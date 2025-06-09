@@ -1,0 +1,24 @@
+run_name: "Test LatentEBM128" # corresponds to exp
+test_run: false
+batch_size: 16
+data_workers: 0
+shuffle_dataset: true
+num_epoch: 10
+lr: 0.0001
+step_lr: 100.0
+components: 8
+ensembles: 8
+data_path: "data"
+train_data_size: 0.75
+filter_dim: 64 # was 32
+latent_dim: 512
+pos_embed: false
+recurrent_model: false
+dataset: "2DMRI"
+steps: 10000
+decoder: false
+channels: 1
+model: 'LatentEBM128' # or 'LatentEBM'
+ssim_weight: 0.20        # MSE↔SSIM mix
+ae_lambda: 1.0         # how strongly AE loss influences the joint loss
+run_dir: runs/autoencoder

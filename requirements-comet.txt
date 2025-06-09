@@ -3,6 +3,7 @@ asttokens
 astunparse
 certifi
 charset-normalizer
+compressai
 decorator
 easydict
 executing

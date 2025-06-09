@@ -536,8 +536,11 @@ class LatentEBM(nn.Module):
         y = torch.linspace(0, 1, self.im_size)
         self.x_grid, self.y_grid = torch.meshgrid(x, y)
 
+
     def embed_latent(self, im):
         x = self.autoencoder.encode(im)
+        # completely flatten the latent vector
+        x = x.view(x.size(0), -1)
         return x
 
     def forward(self, x, latent):

@@ -8,7 +8,6 @@ import logging
 from tqdm import tqdm
 from torch.utils.data import DataLoader, RandomSampler
 
-# Train AE to reconstruct
 
 
 def reconstruct_and_plot(config_path, dataset_type, model_type, checkpoint_path, num_steps, batch_size):
@@ -53,13 +52,14 @@ def reconstruct_and_plot(config_path, dataset_type, model_type, checkpoint_path,
     checkpoint = torch.load(checkpoint_path, map_location=device)
     state_dicts = checkpoint if isinstance(checkpoint, list) else [checkpoint]
     models = [model_class(config, dataset_type).to(device) for _ in range(len(state_dicts))]
+    
     for i, model in enumerate(models):
-        model.load_state_dict(state_dicts[i])
+        model.load_state_dict(state_dicts[0]['ebm_state'][i])
         model.eval()  # Set to evaluation mode
 
     # Prepare data
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=config.data_workers)
-    im, idx = next(iter(dataloader))
+    im = next(iter(dataloader))
     im = im.to(device)
 
     # Embed latent
@@ -89,7 +89,7 @@ def reconstruct_and_plot(config_path, dataset_type, model_type, checkpoint_path,
     plt.figure(figsize=(15, 10))
     for i, latent in enumerate(latents):
         im_neg = torch.rand_like(im)  # Initialize a random image
-        im_negs = gen_image(latents, config, models, im_neg, num_steps*2, idx=i)  # Use only the i-th component
+        im_negs = gen_image(latents, config, models, im_neg, num_steps, idx=i)  # Use only the i-th component
 
         # Plot the final generated image for this component
         im_neg_np = im_negs[-1][0].detach().cpu().numpy().transpose(1, 2, 0)
@@ -103,6 +103,14 @@ def reconstruct_and_plot(config_path, dataset_type, model_type, checkpoint_path,
     plt.savefig(f"src/videos/{dataset_type}_reconstructed_{run_name}.png")
     plt.show()
 
+    import numpy as np
+    # save the latents to a file
+    latents_np = [latent.detach().cpu().numpy() for latent in latents]
+    latents_path = f"src/videos/{dataset_type}_latents_{run_name}.npy"
+    with open(latents_path, 'wb') as f:
+        for latent_np in latents_np:
+            np.save(f, latent_np)
+    logging.info(f"Latents saved to {latents_path}")
 
 def gen_image(latents, FLAGS, models, im_neg, num_steps, idx=None):
     im_negs = []
@@ -116,9 +124,8 @@ def gen_image(latents, FLAGS, models, im_neg, num_steps, idx=None):
             if idx is not None and idx != j:
                 pass
             else:
-                ix = j % FLAGS.components
-                energy = models[j % FLAGS.components].forward(im_neg, latents[j]) + energy
-
+                energy = models[0].forward(im_neg, latents[j]) + energy
+#                 energy = models[j % FLAGS.components].forward(im_neg, latents[j]) + energy
         im_grad, = torch.autograd.grad([energy.sum()], [im_neg])
 
         im_neg = im_neg - FLAGS.step_lr * im_grad
@@ -139,10 +146,10 @@ if __name__ == "__main__":
     # checkpoint_path="/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/src/models/clevr_on_ourde_code_models_51800.pth"
 
     # 2DMRI our model our data:
-    config_path = '/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/src/config/2DMRI_config.yml'
+    config_path = "/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/src/config/2DMRI_config.yml"
     dataset_type = 'MRI2D'
-    model_type = 'LatentEBM128'
-    checkpoint_path = '/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/src/models/models_UN652_10100.pth'
+    model_type = 'LatentEBM'
+    checkpoint_path = "/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/src/models/UN819_model.pt"
 
     run_name = checkpoint_path.split("/")[-1].split(".")[0]
     logging.info(f"Run name: {run_name}")
@@ -152,6 +159,6 @@ if __name__ == "__main__":
         dataset_type,
         model_type,
         checkpoint_path,
-        num_steps=60,
+        num_steps=30,
         batch_size=12
     )

@@ -21,7 +21,7 @@ from tqdm import tqdm
 from src.utils.neptune_logger import NeptuneLogger
 import torch, torch.nn as nn, torch.nn.functional as F
 from torch.distributions import Normal, kl_divergence
-from utils.neptune_logger import NeptuneLogger
+from src.utils.neptune_logger import NeptuneLogger
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from piqa import MS_SSIM
 from compressai.layers import GDN

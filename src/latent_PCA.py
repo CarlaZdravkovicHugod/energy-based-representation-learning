@@ -5,16 +5,27 @@ from ae import UNetAutoencoder, NumpyMRIDataset
 from torch.utils.data import DataLoader
 from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 import logging
+from comet_models import LatentEBM128
+from src.config.load_config import load_config
 
 # Initialize the UNetAutoencoder
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = UNetAutoencoder(base_ch=256, skip_connections=False).to(device)
 
-# Load the checkpoint
-checkpoint_path = "src/models/autoencoder_best_model.pt"
+
+checkpoint_path = "src/models/UN814_is=50.pt"
 checkpoint = torch.load(checkpoint_path, map_location=device)
-model.load_state_dict(checkpoint['model_state'])
-model.eval()
+
+state_dicts = checkpoint if isinstance(checkpoint, list) else [checkpoint]
+
+if 'it' in checkpoint:
+    checkpoint.pop('it')
+models = [LatentEBM128(load_config("src/config/2DMRI_config.yml"), '2DMRI').to(device) for _ in range(len(state_dicts))]
+
+for i, model in enumerate(models):
+    model.load_state_dict(state_dicts[0]['ebm_state'][i])
+    model.eval()  # Set to evaluation mode
+
+
 
 # Load a batch of images
 dataset = NumpyMRIDataset(root="data/")
@@ -29,7 +40,7 @@ logging.info(f"Images shape: {images.shape}")
 # Extract latent representations
 logging.info("Encoding...")
 with torch.no_grad():
-    latents, _ = model.encode(images)
+    latents = model.embed_latent(images)
 
 # Flatten the latent space for PCA
 latents_flat = latents.view(latents.size(0), -1).cpu().numpy()
@@ -101,31 +112,42 @@ axes[2].set_ylabel("Principal Component 3")
 plt.tight_layout()
 plt.show()
 
-# Reconstruct images from the latent space
-logging.info("Decoding...")
-with torch.no_grad():
-    reconstructed_images = model.decode(latents)
-
-# Visualize original and reconstructed images
-fig, axes = plt.subplots(2, len(images), figsize=(15, 5))
-for i in range(len(images)):
-    axes[0, i].imshow(images[i].squeeze().cpu().numpy(), cmap="gray")
-    axes[0, i].axis("off")
-    axes[1, i].imshow(reconstructed_images[i].squeeze().cpu().numpy(), cmap="gray")
-    axes[1, i].axis("off")
-plt.suptitle("Original (top) and Reconstructed (bottom) Images")
+# now plot only pc1 and pc2 in 1 plot with images
+fig, ax = plt.subplots(figsize=(8, 6))
+ax.scatter(latents_pca[:, 0], latents_pca[:, 1], alpha=0)
+imscatter(latents_pca[:, 0], latents_pca[:, 1], images, ax=ax)
+ax.set_title("PC1 vs PC2 with Images")
+ax.set_xlabel("Principal Component 1")
+ax.set_ylabel("Principal Component 2")
 plt.tight_layout()
+plt.savefig("pca1_and_pc2_appendix.png", dpi=600)
 plt.show()
 
-# Calculate cumulative variance explained
-cumulative_variance = pca.explained_variance_ratio_.cumsum()
+# # Reconstruct images from the latent space
+# logging.info("Decoding...")
+# with torch.no_grad():
+#     reconstructed_images = model.decode(latents)
 
-# Plot cumulative variance explained
-plt.figure(figsize=(8, 5))
-plt.plot(range(1, len(cumulative_variance) + 1), cumulative_variance, marker='o', linestyle='--')
-plt.xlabel('Number of Principal Components')
-plt.ylabel('Cumulative Variance Explained')
-plt.title('Cumulative Variance Explained by PCA Components')
-plt.xticks(range(1, len(cumulative_variance) + 1))
-plt.grid()
-plt.show()
+# # Visualize original and reconstructed images
+# fig, axes = plt.subplots(2, len(images), figsize=(15, 5))
+# for i in range(len(images)):
+#     axes[0, i].imshow(images[i].squeeze().cpu().numpy(), cmap="gray")
+#     axes[0, i].axis("off")
+#     axes[1, i].imshow(reconstructed_images[i].squeeze().cpu().numpy(), cmap="gray")
+#     axes[1, i].axis("off")
+# plt.suptitle("Original (top) and Reconstructed (bottom) Images")
+# plt.tight_layout()
+# plt.show()
+
+# # Calculate cumulative variance explained
+# cumulative_variance = pca.explained_variance_ratio_.cumsum()
+
+# # Plot cumulative variance explained
+# plt.figure(figsize=(8, 5))
+# plt.plot(range(1, len(cumulative_variance) + 1), cumulative_variance, marker='o', linestyle='--')
+# plt.xlabel('Number of Principal Components')
+# plt.ylabel('Cumulative Variance Explained')
+# plt.title('Cumulative Variance Explained by PCA Components')
+# plt.xticks(range(1, len(cumulative_variance) + 1))
+# plt.grid()
+# plt.show()
