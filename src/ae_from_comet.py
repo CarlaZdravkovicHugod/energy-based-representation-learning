@@ -27,6 +27,7 @@ from utils.neptune_logger import NeptuneLogger
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from comet_models import LatentEBM, LatentEBM128
 from config.load_config import load_config
+from src.ae_with_paper import MaskedAutoencoder
 
 class NumpyMRIDataset(Dataset):
     """Loads pre-exported `.npy` magnitude slices.
@@ -122,21 +123,7 @@ class Decoder(nn.Module):
     def __init__(self, emb_models):
         super().__init__()
         self.emb_models = emb_models          # for .embed_latent()
-
-        # 1) latent‑to‑map projection
-        self.latent2map = nn.Linear(576, 128 * 16 * 16)
-
-        # 2) transposed‑conv tower (unchanged)
-        self.decoder = nn.Sequential(
-            nn.ConvTranspose2d(128, 64, 3, stride=2, padding=1, output_padding=1),  # 32×32
-            nn.ReLU(),
-            nn.ConvTranspose2d(64, 32, 3, stride=2, padding=1, output_padding=1),   # 64×64
-            nn.ReLU(),
-            nn.ConvTranspose2d(32, 16, 3, stride=2, padding=1, output_padding=1),   # 128×128
-            nn.ReLU(),
-            nn.ConvTranspose2d(16, 1, 3, stride=2, padding=1, output_padding=1),    # 256×256
-            nn.Sigmoid()
-        )
+        self.decoder = MaskedAutoencoder()
 
     def forward(self, x):
         # x: (B, 576)

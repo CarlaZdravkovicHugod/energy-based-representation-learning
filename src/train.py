@@ -34,7 +34,7 @@ def get_ssim(nc):
     ssim = SSIM(n_channels=nc)
     return ssim.cuda() if torch.cuda.is_available() else ssim
 
-def gen_image(latents, config, models, im_neg, im, steps = 50, create_graph=True, idx=None):
+def gen_image(latents, config, models, im_neg, im, steps = 100, create_graph=True, idx=None):
     # TODO: the samples were used through langevin, where did they go?
     # TODO: optimal number of steps?
     im_noise = torch.randn_like(im_neg).detach()
@@ -100,7 +100,11 @@ def init_model(config, dataset):
     # TODO? enseblemes should be == components
     # TODO: we should make some runs where we opitmize lr, steps, batches etc.
     optimizers = [Adam(model.parameters(), lr=config.lr) for model in models]
-    schedulers = [torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=100) for optimizer in optimizers]
+    
+    # Simple scheduler that reduces LR by 0.9 every 1/10th of training steps
+    step_size = max(1, config.steps // 10)
+    schedulers = [torch.optim.lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=0.8) for optimizer in optimizers]
+    
     return models, optimizers, schedulers
 
 
@@ -143,7 +147,6 @@ def train(train_dataloader, models, optimizers, schedulers, config, neptune_logg
 
         neptune_logger.log_metric("im_loss", im_loss.item(), step=int(it))
         neptune_logger.log_metric("loss", loss.item(), step=int(it))
-        neptune_logger.log_metric("scheduler_lr", optimizers[0].param_groups[0]['lr'], step=int(it))
         
         # Use the properly shaped tensor for make_grid and format for Neptune
         im_negs_grid = make_grid(im_negs_for_grid, nrow=min(config.components, im_negs_for_grid.size(0)))
@@ -168,8 +171,13 @@ def train(train_dataloader, models, optimizers, schedulers, config, neptune_logg
         scaler.step(optimizers[0])
         scaler.update()
 
-        # Scheduler step
-        [scheduler.step(loss) for scheduler in schedulers]
+        # Scheduler step - FIX: StepLR doesn't take loss argument, and only step the scheduler for the optimizer being used
+        [scheduler.step() for scheduler in schedulers]
+        
+        # Log learning rate AFTER scheduler step to see the updated value
+        neptune_logger.log_metric("scheduler_lr", optimizers[0].param_groups[0]['lr'], step=int(it))
+        neptune_logger.log_metric("scheduler_lr2", optimizers[1].param_groups[0]['lr'], step=int(it))
+        neptune_logger.log_metric("scheduler_lr3", optimizers[2].param_groups[0]['lr'], step=int(it))
 
         if it % 100 == 0:
             torch.save({"it": it,
