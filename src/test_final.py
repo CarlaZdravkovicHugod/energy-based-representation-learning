@@ -7,18 +7,17 @@ from imageio.v2 import get_writer
 import logging
 from tqdm import tqdm
 from torch.utils.data import DataLoader, RandomSampler
+import argparse
 
 # Train AE to reconstruct
 
 
-def reconstruct_and_plot(config_path, dataset_type, model_type, checkpoint_path, num_steps, batch_size):
+def reconstruct_and_plot(config_path, checkpoint_path, num_steps, batch_size):
     """
     Test a model on a given dataset and visualize the results.
 
     Args:
         config_path (str): Path to the configuration file.
-        dataset_type (str): Type of dataset ('MRI2D', 'Clevr', etc.).
-        model_type (str): Type of model ('LatentEBM', 'LatentEBM128').
         checkpoint_path (str): Path to the model checkpoint.
         num_steps (int): Number of steps for image generation.
         batch_size (int): Batch size for testing.
@@ -30,10 +29,10 @@ def reconstruct_and_plot(config_path, dataset_type, model_type, checkpoint_path,
     run_name = checkpoint_path.split("/")[-1].split(".")[0]
     logging.info(f"Run name: {run_name}")
 
-    # Initialize dataset
-    if dataset_type == "MRI2D":
+    dataset_type = config.dataset
+    if dataset_type == "2DMRI":
         dataset = MRI2D(config)
-    elif dataset_type == "Clevr":
+    elif dataset_type == "clevr":
         dataset = Clevr(config, train=False)
     else:
         raise ValueError(f"Unsupported dataset type: {dataset_type}")
@@ -42,6 +41,7 @@ def reconstruct_and_plot(config_path, dataset_type, model_type, checkpoint_path,
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Load model
+    model_type = config.model
     if model_type == "LatentEBM":
         model_class = LatentEBM
     elif model_type == "LatentEBM128":
@@ -132,26 +132,17 @@ def gen_image(latents, FLAGS, models, im_neg, num_steps, idx=None):
 
 
 if __name__ == "__main__":
-    # Clevr our code:
-    # config_path="/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/src/config/clevr_config.yml"
-    # dataset_type="Clevr"
-    # model_type="LatentEBM128"
-    # checkpoint_path="/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/src/models/clevr_on_ourde_code_models_51800.pth"
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", type=str, required=False, help="Path to config file", default='src/config/2DMRI_config.yml')
+    parser.add_argument("--checkpoint", type=str, required=False, help="Path to model checkpoint", default='src/models/models_UN652_10100.pth')
+    args = parser.parse_args()
 
-    # 2DMRI our model our data:
-    config_path = '/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/src/config/2DMRI_config.yml'
-    dataset_type = 'MRI2D'
-    model_type = 'LatentEBM128'
-    checkpoint_path = '/Users/carlahugod/Desktop/UNI/6sem/bach/energy-based-representation-learning/src/models/models_UN652_10100.pth'
-
-    run_name = checkpoint_path.split("/")[-1].split(".")[0]
+    run_name = args.checkpoint.split("/")[-1].split(".")[0]
     logging.info(f"Run name: {run_name}")
 
     reconstruct_and_plot(
-        config_path,
-        dataset_type,
-        model_type,
-        checkpoint_path,
+        args.config,
+        args.checkpoint,
         num_steps=60,
         batch_size=12
     )

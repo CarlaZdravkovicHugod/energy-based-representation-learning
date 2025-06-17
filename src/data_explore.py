@@ -84,6 +84,22 @@ plt.savefig(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'figur
 plt.show()
 
 
+# Log transform the data to see the distribution better
+plt.figure(figsize=(10, 4))
+plt.subplot(1, 2, 2)
+plt.hist(np.log(sample[0] + 1).flatten(), bins=100, color='blue', alpha=0.7)
+plt.title(f"Log transformed sample")
+plt.xlabel("Pixel value")
+plt.ylabel("Frequency")
+plt.grid()
+plt.subplot(1, 2, 1)
+plt.hist(np.log(org_img + 1).flatten(), bins=100, color='blue', alpha=0.7)
+plt.title(f"Log transformed original slice")
+plt.xlabel("Pixel value")
+plt.ylabel("Frequency")
+plt.grid()
+plt.show()
+
 # Correlation matrix
 # corr_matrix = torch.corrcoef(sample[0].T)
 # plt.figure(figsize=(10, 8))
