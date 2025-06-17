@@ -1,24 +1,24 @@
-run_name: "2DMRI" # corresponds to exp
-test_run: false
+ae_lambda: 1.0         # how strongly AE loss influences the joint loss
 batch_size: 16
+channels: 1
+components: 8
+data_path: "data"
 data_workers: 0
-shuffle_dataset: true
+dataset: "2DMRI"
+decoder: false
+ensembles: 8
+filter_dim: 64 # was 32
+latent_dim: 512
+lr: 0.00005
+model: 'LatentEBM128' # or 'LatentEBM'
 num_epoch: 10
-lr: 0.0001
-step_lr: 100.0
-components: 9
-ensembles: 10
-data_path: "data/*.npy"
-train_data_size: 0.75
-filter_dim: 16 # was 32
-latent_dim: 64
 pos_embed: false
 recurrent_model: false
-dataset: "2DMRI"
-steps: 100000
-decoder: false
-channels: 1
-model: 'LatentEBM128' # or 'LatentEBM'
-ssim_weight: 0.20        # MSE↔SSIM mix
-ae_lambda: 1.0         # how strongly AE loss influences the joint loss
 run_dir: runs/autoencoder
+run_name: "2DMRI - with new autoencoder - 100 internal steps - slower linear lr scheduler" # corresponds to exp
+shuffle_dataset: true
+ssim_weight: 0.20        # MSE↔SSIM mix
+step_lr: 100.0
+steps: 8000
+test_run: false
+train_data_size: 0.75

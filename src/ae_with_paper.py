@@ -23,6 +23,10 @@ import torch, torch.nn as nn, torch.nn.functional as F
 from torch.distributions import Normal, kl_divergence
 from utils.neptune_logger import NeptuneLogger
 from torch.optim.lr_scheduler import CosineAnnealingLR
+from piqa import MS_SSIM
+from compressai.layers import GDN
+
+ms_ssim = MS_SSIM(n_channels=1).to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
 
 class NumpyMRIDataset(Dataset):
     """Loads pre-exported `.npy` magnitude slices.
@@ -62,36 +66,72 @@ class NumpyMRIDataset(Dataset):
         img = img.squeeze(0)
         return img
     
+
 class MaskedAutoencoder(nn.Module):
     def __init__(self):
         super().__init__()
-        self.encoder = nn.Sequential(
-            nn.Conv2d(1, 16, 3, stride=2, padding=1),  # 128x128
-            nn.ReLU(),
-            nn.Conv2d(16, 32, 3, stride=2, padding=1), # 64x64 
-            nn.ReLU(),
-            nn.Conv2d(32, 64, 3, stride=2, padding=1), # 32x32
-            nn.ReLU(),
-            nn.Conv2d(64, 128, 3, stride=2, padding=1), # 16x16
-            nn.ReLU(),
+
+        # ------------------------------------------------------------------ #
+        # Encoder = Conv → GDN  (no ReLU). First block uses GroupNorm to
+        # stabilise statistics before the divisive normalisation kicks in.
+        # ------------------------------------------------------------------ #
+        self.encoder_conv = nn.Sequential(
+            nn.Conv2d(1, 32, 3, stride=2, padding=1),          # 256 → 128
+            nn.GroupNorm(8, 32),                               # (Wu & He 2018)
+            GDN(32),
+
+            nn.Conv2d(32, 64, 3, stride=2, padding=1),         # 128 → 64
+            GDN(64),
+            nn.Conv2d(64, 128, 3, stride=2, padding=1),        # 64 → 32
+            GDN(128),
+            nn.Conv2d(128, 256, 3, stride=2, padding=1),       # 32 → 16
+            GDN(256),
+            nn.Conv2d(256, 512, 3, stride=2, padding=1),       # 16 → 8
+            GDN(512),
+
+            nn.Conv2d(512, 256, 3, stride=2, padding=1),       # 8 → 4
+            GDN(256),
+        )  # Final latent space size: (256, 4, 4) = 4096 dimensions
+
+        # -------------- optional residual injector at 4×4 latent ----------- #
+        self.bottleneck = nn.Sequential(
+            nn.Conv2d(256, 256, 3, padding=1, bias=False),
+            GDN(256),
+            nn.Conv2d(256, 256, 3, padding=1, bias=False),
+            GDN(256)
         )
 
-        self.decoder = nn.Sequential(
-            nn.ConvTranspose2d(128, 64, 3, stride=2, padding=1, output_padding=1), # 32x32
-            nn.ReLU(),
-            nn.ConvTranspose2d(64, 32, 3, stride=2, padding=1, output_padding=1), # 64x64
-            nn.ReLU(), 
-            nn.ConvTranspose2d(32, 16, 3, stride=2, padding=1, output_padding=1), # 128x128
-            nn.ReLU(),
-            nn.ConvTranspose2d(16, 1, 3, stride=2, padding=1, output_padding=1), # 256x256
-            nn.Sigmoid()
+        # ------------------------------------------------------------------ #
+        # Decoder = IGDN → Deconv  (mirror of encoder)
+        # ------------------------------------------------------------------ #
+        self.decoder_conv = nn.Sequential(
+            GDN(256, inverse=True),
+            nn.ConvTranspose2d(256, 512, 3, stride=2, padding=1, output_padding=1),  # 4 → 8
+            GDN(512, inverse=True),
+            nn.ConvTranspose2d(512, 256, 3, stride=2, padding=1, output_padding=1),  # 8 → 16
+            GDN(256, inverse=True),
+            nn.ConvTranspose2d(256, 128, 3, stride=2, padding=1, output_padding=1),  # 16 → 32
+            GDN(128, inverse=True),
+            nn.ConvTranspose2d(128, 64, 3, stride=2, padding=1, output_padding=1),   # 32 → 64
+            GDN(64, inverse=True),
+            nn.ConvTranspose2d(64, 32, 3, stride=2, padding=1, output_padding=1),    # 64 → 128
+            GDN(32, inverse=True),
+            nn.ConvTranspose2d(32, 1, 3, stride=2, padding=1, output_padding=1),     # 128 → 256
+            nn.Sigmoid(),
         )
+
+    # ---------------------------------------------------------------------- #
+    def encode(self, x):
+        z = self.encoder_conv(x)
+        # z = z + 0.1 * self.bottleneck(z)           # lightweight residual
+        return z
+
+    def decode(self, z):
+        return self.decoder_conv(z)
 
     def forward(self, x):
-        x = self.encoder(x)
-        x = self.decoder(x)
-        return x
-    
+        return self.decode(self.encode(x))
+
 ### ----- ###
 ### UTILS ###
 ### ----- ###
@@ -120,7 +160,17 @@ def eval_epoch(model, loader, device):
     return total_loss / len(loader.dataset), recon, batch
 
 def ae_loss(x, recon):
-    return nn.functional.mse_loss(recon, x)
+    # Handle NaN values in reconstruction
+    if torch.isnan(recon).any():
+        return F.mse_loss(recon, x)  # Fallback to just MSE loss
+        
+    # Ensure values are in valid range for MS-SSIM (0-1)
+    recon = torch.clamp(recon, 0.0, 1.0)
+    x = torch.clamp(x, 0.0, 1.0)
+    
+    rec_loss = 0.8 * F.mse_loss(recon, x) + 0.2 * (1 - ms_ssim(recon, x))
+    total_loss = rec_loss
+    return total_loss
 
 def save_grids(train_batch, train_recon, eval_batch, eval_recon, neptune_logger, epoch):
     grid = make_grid(torch.cat([train_batch, train_recon], 0), nrow=8)

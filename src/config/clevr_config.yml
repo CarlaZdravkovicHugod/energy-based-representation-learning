@@ -10,8 +10,8 @@ components: 4
 ensembles: 5
 data_path: "data/images_clevr/"
 train_data_size: 0.75
-filter_dim: 64
-latent_dim: 64
+filter_dim: 256
+latent_dim: 256
 pos_embed: false
 recurrent_model: false
 dataset: "clevr"
