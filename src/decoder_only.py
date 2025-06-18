@@ -126,8 +126,8 @@ class Decoder(nn.Module):
         self.decoder = MaskedAutoencoder()
 
     def forward(self, x):
-        # with torch.no_grad():
-        x = self.emb_models[0].embed_latent(x)
+        with torch.no_grad():
+            x = self.emb_models[0].embed_latent(x)
         x = x.view(x.shape[0], 256, 4, 4)
         x = self.decoder.decode(x)
         return x                
