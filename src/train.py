@@ -13,7 +13,7 @@ import threading
 from dataclasses import asdict
 from src.utils.neptune_logger import NeptuneLogger
 from torch.cuda.amp import autocast, GradScaler
-from piqa import SSIM                                   # differentiable SSIM
+from piqa import SSIM, MS_SSIM                               # differentiable SSIM
 from torchvision.utils import make_grid, save_image
 import math
 from PIL import Image
@@ -30,8 +30,8 @@ def mse_psnr(x, y):
     mse = F.mse_loss(x, y).item()
     return mse, 20 * math.log10(1. / math.sqrt(mse + 1e-12))
 
-def get_ssim(nc):
-    ssim = SSIM(n_channels=nc)
+def get_ms_ssim():
+    ssim = MS_SSIM()
     return ssim.cuda() if torch.cuda.is_available() else ssim
 
 def gen_image(latents, config, models, im_neg, im, steps = 100, create_graph=True, idx=None):
@@ -111,6 +111,7 @@ def init_model(config, dataset):
 def train(train_dataloader, models, optimizers, schedulers, config, neptune_logger: NeptuneLogger):
     # Log the configuration
     neptune_logger.log_config_dict(asdict(config))
+    ms_ssim_loss = get_ms_ssim()
 
     if torch.cuda.is_available():
         dev = torch.device("cuda")
@@ -125,13 +126,12 @@ def train(train_dataloader, models, optimizers, schedulers, config, neptune_logg
 
         optimizers[0].zero_grad()
 
-        with autocast():  # Updated autocast usage
+        with autocast():
             latent = models[0].embed_latent(im)   # vector latent
             latents = torch.chunk(latent, config.components, dim=1)
             im_neg = torch.rand_like(im)
             im_neg, im_negs, _, _ = gen_image(latents, config, models, im_neg, im)
             
-            # Fix the stacking and reshaping for make_grid
             if len(im_negs) > 1:
                 im_negs = torch.stack(im_negs, dim=1)  # (B, num_steps, C, H, W)
                 # Reshape for make_grid: (B * num_steps, C, H, W)
@@ -142,7 +142,7 @@ def train(train_dataloader, models, optimizers, schedulers, config, neptune_logg
                 im_negs_for_grid = im_negs[0]
                 im_negs = torch.stack(im_negs, dim=1)  # Keep for loss computation
             
-            im_loss = torch.pow(im_negs[:, -1:] - im[:, None], 2).mean()
+            im_loss = torch.pow(im_negs[:, -1:] - im[:, None], 2).mean() + ms_ssim_loss(im_negs[:, -1:], im[:, None])
             loss = im_loss
 
         neptune_logger.log_metric("im_loss", im_loss.item(), step=int(it))
@@ -153,9 +153,8 @@ def train(train_dataloader, models, optimizers, schedulers, config, neptune_logg
         
         # Convert from (C, H, W) to (H, W, C) for Neptune and ensure it's in the right format
         if im_negs_grid.dim() == 3:
-            im_negs_grid = im_negs_grid.permute(1, 2, 0)  # (C, H, W) -> (H, W, C)
+            im_negs_grid = im_negs_grid.permute(1, 2, 0)
         
-        # Convert to CPU and clamp values to [0, 1]
         im_negs_grid = torch.clamp(im_negs_grid, 0, 1).cpu()
         
         # If single channel, squeeze the last dimension for grayscale
@@ -164,17 +163,13 @@ def train(train_dataloader, models, optimizers, schedulers, config, neptune_logg
         
         neptune_logger.log_image("im_negs", im_negs_grid, step=int(it))
 
-        # Backpropagation with GradScaler
         scaler.scale(loss).backward()
-
-        # Optimizer step with GradScaler
         scaler.step(optimizers[0])
         scaler.update()
 
         # Scheduler step - FIX: StepLR doesn't take loss argument, and only step the scheduler for the optimizer being used
         [scheduler.step() for scheduler in schedulers]
         
-        # Log learning rate AFTER scheduler step to see the updated value
         neptune_logger.log_metric("scheduler_lr", optimizers[0].param_groups[0]['lr'], step=int(it))
         neptune_logger.log_metric("scheduler_lr2", optimizers[1].param_groups[0]['lr'], step=int(it))
         neptune_logger.log_metric("scheduler_lr3", optimizers[2].param_groups[0]['lr'], step=int(it))
@@ -194,7 +189,7 @@ def main(config: Config, neptune_logger: NeptuneLogger):
         dataset = Clevr(config, train=True)
         test_dataset = Clevr(config, train=False)
     elif config.dataset == '2DMRI':
-        dataset = MRI2D(config) # TOOD: test and train cannor be the same
+        dataset = MRI2D(config)
         test_dataset = MRI2D(config, eval=True)
 
     print(f'Train dataset has {len(dataset)} samples')
